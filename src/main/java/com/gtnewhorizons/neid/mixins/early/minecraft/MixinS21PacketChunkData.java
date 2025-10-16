@@ -31,10 +31,13 @@ public class MixinS21PacketChunkData {
     private static final byte[] fakeByteArray = new byte[0];
     private static final NibbleArray fakeNibbleArray = new NibbleArray(0, 0);
 
+    // Флаг для определения, был ли вызван наш redirect (не Ultramine)
+    private static final ThreadLocal<Boolean> redirectCalled = ThreadLocal.withInitial(() -> false);
+
     @ModifyConstant(
             method = "<clinit>",
             constant = @Constant(intValue = Constants.VANILLA_BYTES_PER_CHUNK),
-            require = 1)
+            require = 0)
     private static int neid$OverrideBytesPerChunk1(int old) {
         return Constants.BYTES_PER_CHUNK;
     }
@@ -42,7 +45,7 @@ public class MixinS21PacketChunkData {
     @ModifyConstant(
             method = "func_149275_c()I",
             constant = @Constant(intValue = Constants.VANILLA_BYTES_PER_CHUNK),
-            require = 1)
+            require = 0)
     private static int neid$OverrideBytesPerChunk2(int i) {
         return Constants.BYTES_PER_CHUNK;
     }
@@ -50,7 +53,7 @@ public class MixinS21PacketChunkData {
     @ModifyConstant(
             method = "readPacketData",
             constant = @Constant(intValue = Constants.VANILLA_BYTES_PER_EBS),
-            require = 1)
+            require = 0)
     private static int neid$OverrideBytesPerEBS(int i) {
         return Constants.BYTES_PER_EBS;
     }
@@ -60,9 +63,10 @@ public class MixinS21PacketChunkData {
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;getBlockLSBArray()[B"),
-            require = 1)
+            require = 0)
     private static byte[] neid$injectNewDataCopy(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 1) LocalIntRef offset) {
+        redirectCalled.set(true); // Помечаем что наш код выполняется
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
         byte[] data = ebsMixin.getBlockData();
         System.arraycopy(data, 0, thebytes, offset.get(), Constants.BLOCKS_PER_EBS * 2);
@@ -76,7 +80,7 @@ public class MixinS21PacketChunkData {
                     value = "INVOKE",
                     target = "Ljava/lang/System;arraycopy(Ljava/lang/Object;ILjava/lang/Object;II)V",
                     ordinal = 0),
-            require = 1)
+            require = 0)
     private static boolean neid$cancelLSBArrayCopy(Object a, int i, Object b, int j, int k) {
         return false;
     }
@@ -86,7 +90,7 @@ public class MixinS21PacketChunkData {
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;getMetadataArray()Lnet/minecraft/world/chunk/NibbleArray;"),
-            require = 1)
+            require = 0)
     private static NibbleArray neid$injectNewMetadataCopy(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 1) LocalIntRef offset) {
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
@@ -102,7 +106,7 @@ public class MixinS21PacketChunkData {
                     value = "INVOKE",
                     target = "Ljava/lang/System;arraycopy(Ljava/lang/Object;ILjava/lang/Object;II)V",
                     ordinal = 1),
-            require = 1)
+            require = 0)
     private static boolean neid$cancelMetadataArrayCopy(Object a, int i, Object b, int j, int k) {
         return false;
     }
@@ -113,14 +117,20 @@ public class MixinS21PacketChunkData {
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;getBlockMSBArray()Lnet/minecraft/world/chunk/NibbleArray;",
                     ordinal = 0),
-            require = 1)
+            require = 0)
     private static NibbleArray neid$nukeMSBLoop(ExtendedBlockStorage ebs) {
         return null;
     }
 
-    @Inject(method = "func_149269_a", at = @At("TAIL"))
+    @Inject(method = "func_149269_a", at = @At("TAIL"), require = 0)
     private static void neid$modifyChunkData(Chunk chunk, boolean firstSync, int flags,
             CallbackInfoReturnable<S21PacketChunkData.Extracted> cir, @Local S21PacketChunkData.Extracted data) {
+        // Если redirect не вызывался (Ultramine master), не выполняем этот код
+        if (!redirectCalled.get()) {
+            return;
+        }
+        redirectCalled.set(false); // Сбрасываем флаг
+
         ExtendedBlockStorage[] ebs = chunk.getBlockStorageArray();
 
         ShortBuffer[] blocks = new ShortBuffer[ebs.length];

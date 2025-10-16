@@ -10,9 +10,13 @@ import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnewhorizons.neid.Constants;
 import com.gtnewhorizons.neid.NEIDConfig;
+import com.gtnewhorizons.neid.NEIDMemSlot;
 import com.gtnewhorizons.neid.mixins.interfaces.IExtendedBlockStorageMixin;
 
 @Mixin(ExtendedBlockStorage.class)
@@ -24,17 +28,61 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
     @Shadow
     private int tickRefCount;
 
-    private short[] block16BArray = new short[Constants.BLOCKS_PER_EBS];
+    private NEIDMemSlot neidSlot;
 
-    private short[] block16BMetaArray = new short[Constants.BLOCKS_PER_EBS];
+    // Keep references to the arrays for backward compatibility
+    // Will be initialized by constructor injection or getSlot()
+    private short[] block16BArray;
+    private short[] block16BMetaArray;
+
+    @Inject(method = "<init>(IZ)V", at = @At("RETURN"))
+    private void neid$initNEIDSlot(int yBase, boolean hasSkyLight, CallbackInfo ci) {
+        this.neidSlot = new NEIDMemSlot();
+        this.block16BArray = this.neidSlot.getBlocksArray();
+        this.block16BMetaArray = this.neidSlot.getMetadataArray();
+    }
+
+    @Inject(method = "<init>(IZZ)V", at = @At("RETURN"), require = 0)
+    private void neid$initNEIDSlotZerofill(int yBase, boolean hasSkyLight, boolean zerofill, CallbackInfo ci) {
+        this.neidSlot = new NEIDMemSlot();
+        if (zerofill) {
+            this.neidSlot.zerofillAll();
+        }
+        this.block16BArray = this.neidSlot.getBlocksArray();
+        this.block16BMetaArray = this.neidSlot.getMetadataArray();
+    }
+
+    // Note: Ultramine master branch конструктор ExtendedBlockStorage(MemSlot slot, ...) не патчится через mixin
+    // потому что требует compile-time зависимости на Ultramine классы.
+    // Вместо этого, Ultramine будет вызывать getSlot() и получать NEIDMemSlot напрямую.
+
+    /**
+     * Ultramine Core master branch integration - provide access to MemSlot Returns Object to avoid compile-time
+     * dependency on Ultramine classes
+     */
+    public Object getSlot() {
+        // Lazy initialization для Ultramine master branch
+        if (neidSlot == null) {
+            neidSlot = new NEIDMemSlot();
+            block16BArray = neidSlot.getBlocksArray();
+            block16BMetaArray = neidSlot.getMetadataArray();
+        }
+        return neidSlot;
+    }
 
     @Override
     public short[] getBlock16BArray() {
+        if (this.block16BArray == null) {
+            getSlot(); // Lazy init
+        }
         return this.block16BArray;
     }
 
     @Override
     public short[] getBlock16BMetaArray() {
+        if (this.block16BMetaArray == null) {
+            getSlot(); // Lazy init
+        }
         return this.block16BMetaArray;
     }
 

@@ -28,7 +28,7 @@ public class MixinAnvilChunkLoader {
                     value = "INVOKE",
                     target = "Lnet/minecraft/nbt/NBTTagCompound;setByteArray(Ljava/lang/String;[B)V",
                     ordinal = 0),
-            require = 1)
+            require = 0)
     private void neid$overrideWriteLSBArray(NBTTagCompound nbt, String s, byte[] oldbrokenbytes,
             @Local(ordinal = 0) ExtendedBlockStorage ebs) {
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
@@ -70,7 +70,7 @@ public class MixinAnvilChunkLoader {
                     value = "INVOKE",
                     target = "Lnet/minecraft/nbt/NBTTagCompound;setByteArray(Ljava/lang/String;[B)V",
                     ordinal = 2),
-            require = 1)
+            require = 0)
     private void neid$overrideWriteMetadataArray(NBTTagCompound nbt, String s, byte[] oldbrokenbytes,
             @Local(ordinal = 0) ExtendedBlockStorage ebs) {
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
@@ -101,7 +101,7 @@ public class MixinAnvilChunkLoader {
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;setBlockLSBArray([B)V"),
-            require = 1)
+            require = 0)
     private void neid$overrideReadLSBArray(ExtendedBlockStorage ebs, byte[] oldbrokenbytes,
             @Local(ordinal = 1) NBTTagCompound nbt) {
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
@@ -133,7 +133,7 @@ public class MixinAnvilChunkLoader {
                     value = "INVOKE",
                     target = "Lnet/minecraft/nbt/NBTTagCompound;hasKey(Ljava/lang/String;I)Z",
                     ordinal = 0),
-            require = 1)
+            require = 0)
     private boolean neid$overrideReadMSBArray(NBTTagCompound nbttagcompound1, String s, int i) {
         return false;
     }
@@ -144,7 +144,7 @@ public class MixinAnvilChunkLoader {
                     value = "INVOKE",
                     target = "Lnet/minecraft/nbt/NBTTagCompound;getByteArray(Ljava/lang/String;)[B",
                     ordinal = 2),
-            require = 1)
+            require = 0)
     private byte[] neid$cancelByteArrayCreationForMetadata(NBTTagCompound nbttagcompound1, String s) {
         return fakeByteArray;
     }
@@ -152,7 +152,7 @@ public class MixinAnvilChunkLoader {
     @WrapOperation(
             method = "readChunkFromNBT",
             at = @At(value = "NEW", target = "Lnet/minecraft/world/chunk/NibbleArray;", ordinal = 1),
-            require = 1)
+            require = 0)
     private NibbleArray neid$cancelNibbleArrayCreationForMetadata(byte[] bytes, int i,
             Operation<NibbleArray> original) {
         return fakeNibbleArray;
@@ -163,7 +163,7 @@ public class MixinAnvilChunkLoader {
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;setBlockMetadataArray(Lnet/minecraft/world/chunk/NibbleArray;)V"),
-            require = 1)
+            require = 0)
     private void neid$overrideReadMetadataArray(ExtendedBlockStorage ebs, NibbleArray oldNibble,
             @Local(ordinal = 1) NBTTagCompound nbt) {
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
