@@ -16,7 +16,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnewhorizons.neid.Constants;
 import com.gtnewhorizons.neid.NEIDConfig;
-import com.gtnewhorizons.neid.NEIDMemSlot;
 import com.gtnewhorizons.neid.mixins.interfaces.IExtendedBlockStorageMixin;
 
 @Mixin(ExtendedBlockStorage.class)
@@ -28,61 +27,17 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
     @Shadow
     private int tickRefCount;
 
-    private NEIDMemSlot neidSlot;
-
-    // Keep references to the arrays for backward compatibility
-    // Will be initialized by constructor injection or getSlot()
-    private short[] block16BArray;
-    private short[] block16BMetaArray;
-
-    @Inject(method = "<init>(IZ)V", at = @At("RETURN"))
-    private void neid$initNEIDSlot(int yBase, boolean hasSkyLight, CallbackInfo ci) {
-        this.neidSlot = new NEIDMemSlot();
-        this.block16BArray = this.neidSlot.getBlocksArray();
-        this.block16BMetaArray = this.neidSlot.getMetadataArray();
-    }
-
-    @Inject(method = "<init>(IZZ)V", at = @At("RETURN"), require = 0)
-    private void neid$initNEIDSlotZerofill(int yBase, boolean hasSkyLight, boolean zerofill, CallbackInfo ci) {
-        this.neidSlot = new NEIDMemSlot();
-        if (zerofill) {
-            this.neidSlot.zerofillAll();
-        }
-        this.block16BArray = this.neidSlot.getBlocksArray();
-        this.block16BMetaArray = this.neidSlot.getMetadataArray();
-    }
-
-    // Note: Ultramine master branch конструктор ExtendedBlockStorage(MemSlot slot, ...) не патчится через mixin
-    // потому что требует compile-time зависимости на Ultramine классы.
-    // Вместо этого, Ultramine будет вызывать getSlot() и получать NEIDMemSlot напрямую.
-
-    /**
-     * Ultramine Core master branch integration - provide access to MemSlot Returns Object to avoid compile-time
-     * dependency on Ultramine classes
-     */
-    public Object getSlot() {
-        // Lazy initialization для Ultramine master branch
-        if (neidSlot == null) {
-            neidSlot = new NEIDMemSlot();
-            block16BArray = neidSlot.getBlocksArray();
-            block16BMetaArray = neidSlot.getMetadataArray();
-        }
-        return neidSlot;
-    }
+    // NEID uses simple on-heap arrays - direct initialization like lyxinfine
+    private short[] block16BArray = new short[Constants.BLOCKS_PER_EBS];
+    private short[] block16BMetaArray = new short[Constants.BLOCKS_PER_EBS];
 
     @Override
     public short[] getBlock16BArray() {
-        if (this.block16BArray == null) {
-            getSlot(); // Lazy init
-        }
         return this.block16BArray;
     }
 
     @Override
     public short[] getBlock16BMetaArray() {
-        if (this.block16BMetaArray == null) {
-            getSlot(); // Lazy init
-        }
         return this.block16BMetaArray;
     }
 
@@ -213,6 +168,20 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
                 }
             }
         }
+    }
+
+    /**
+     * Ultramine Core specific method - fix buggy MSB clearing. This method only exists in Ultramine, so we use Inject
+     * with require=0 to make it optional. The original Ultramine implementation truncates block IDs to 255, causing
+     * corruption.
+     */
+    @Inject(method = "clearMSBArray", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
+    public void neid$fixClearMSBArray(CallbackInfo ci) {
+        // Preserve LSB (lower 8 bits), clear only MSB (upper 8 bits)
+        for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
+            this.block16BArray[i] = (short) (this.block16BArray[i] & 0x00FF);
+        }
+        ci.cancel(); // Don't execute original buggy implementation
     }
 
 }
