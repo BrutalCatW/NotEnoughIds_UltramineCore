@@ -67,12 +67,83 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
                 .put(ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).asShortBuffer());
     }
 
+    // Ultramine slot accessor - cached to avoid repeated reflection
+    private Object cachedSlot = null;
+    private boolean slotAccessAttempted = false;
+
+    private Object getUltramineSlot() {
+        if (!slotAccessAttempted) {
+            slotAccessAttempted = true;
+            try {
+                cachedSlot = this.getClass().getMethod("getSlot").invoke(this);
+            } catch (Exception e) {
+                // Not Ultramine or method doesn't exist
+                cachedSlot = null;
+            }
+        }
+        return cachedSlot;
+    }
+
     private int getBlockId(int x, int y, int z) {
+        // Try to read from Ultramine slot first
+        Object slot = getUltramineSlot();
+        if (slot != null) {
+            try {
+                java.lang.reflect.Method getBlockIdMethod = slot.getClass()
+                        .getMethod("getBlockId", int.class, int.class, int.class);
+                return (int) getBlockIdMethod.invoke(slot, x, y, z);
+            } catch (Exception e) {
+                // Fall back to NEID array
+            }
+        }
         return block16BArray[y << 8 | z << 4 | x] & 0xFFFF;
     }
 
     private void setBlockId(int x, int y, int z, int id) {
         block16BArray[y << 8 | z << 4 | x] = (short) id;
+
+        // Sync to Ultramine slot if available
+        Object slot = getUltramineSlot();
+        if (slot != null) {
+            try {
+                java.lang.reflect.Method setBlockIdMethod = slot.getClass()
+                        .getMethod("setBlockId", int.class, int.class, int.class, int.class);
+                setBlockIdMethod.invoke(slot, x, y, z, id);
+            } catch (Exception e) {
+                // Ultramine slot not available or failed
+            }
+        }
+    }
+
+    private int getBlockMetadata(int x, int y, int z) {
+        // Try to read from Ultramine slot first
+        Object slot = getUltramineSlot();
+        if (slot != null) {
+            try {
+                java.lang.reflect.Method getMetaMethod = slot.getClass()
+                        .getMethod("getMeta", int.class, int.class, int.class);
+                return (int) getMetaMethod.invoke(slot, x, y, z);
+            } catch (Exception e) {
+                // Fall back to NEID array
+            }
+        }
+        return this.block16BMetaArray[y << 8 | z << 4 | x] & 0xFFFF;
+    }
+
+    private void setBlockMetadata(int x, int y, int z, int meta) {
+        this.block16BMetaArray[y << 8 | z << 4 | x] = (short) (meta & 0xFFFF);
+
+        // Sync to Ultramine slot if available
+        Object slot = getUltramineSlot();
+        if (slot != null) {
+            try {
+                java.lang.reflect.Method setMetaMethod = slot.getClass()
+                        .getMethod("setMeta", int.class, int.class, int.class, int.class);
+                setMetaMethod.invoke(slot, x, y, z, meta);
+            } catch (Exception e) {
+                // Ultramine slot not available or failed
+            }
+        }
     }
 
     /**
@@ -93,7 +164,7 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
      */
     @Overwrite
     public int getExtBlockMetadata(int x, int y, int z) {
-        return this.block16BMetaArray[y << 8 | z << 4 | x] & 0xFFFF;
+        return getBlockMetadata(x, y, z);
     }
 
     /**
@@ -141,7 +212,7 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
      */
     @Overwrite
     public void setExtBlockMetadata(int x, int y, int z, int meta) {
-        this.block16BMetaArray[y << 8 | z << 4 | x] = (short) (meta & 0xFFFF);
+        setBlockMetadata(x, y, z, meta);
     }
 
     /**

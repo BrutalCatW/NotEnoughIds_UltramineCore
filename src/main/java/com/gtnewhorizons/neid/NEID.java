@@ -26,7 +26,10 @@ public class NEID {
         } catch (ConfigException e) {
             throw new RuntimeException("Failed to register NotEnoughIDs config!");
         }
+
         // NEIDChunkAllocService is registered automatically via static initializer
+        // Chunk save/load handled by MixinAnvilChunkLoader (vanilla Forge)
+        // or by direct slot access in MixinExtendedBlockStorage (Ultramine)
     }
 
 }
