@@ -21,7 +21,13 @@ public enum Mixins implements IMixins {
             "minecraft.MixinS26PacketMapChunkBulk",
             "minecraft.MixinItemInWorldManager",
             "minecraft.MixinAnvilChunkLoader",
-            "minecraft.MixinBlock")),
+            "minecraft.MixinBlock",
+            "minecraft.MixinEbsSaveFakeNbt",
+            "minecraft.MixinAnvilChunkLoaderUltramine")),
+    // S21PacketChunkData is server-side but only exists in integrated server (not dedicated server)
+    // So we use common mixins with require=0 - it will apply only when the class exists
+    VANILLA_STARTUP_S21_ULTRAMINE(new MixinBuilder()
+        .addCommonMixins("minecraft.MixinS21PacketChunkDataUltramine")),
     VANILLA_STARTUP_ONLY_WITHOUT_THERMOS(new MixinBuilder()
         .addCommonMixins("minecraft.MixinS21PacketChunkData")
         .addExcludedMod(TargetMods.THERMOS)),
