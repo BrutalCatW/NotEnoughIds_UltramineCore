@@ -14,6 +14,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.gtnewhorizons.neid.Constants;
 import com.gtnewhorizons.neid.NEIDConfig;
@@ -260,6 +261,114 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
             this.block16BArray[i] = (short) (this.block16BArray[i] & 0x00FF);
         }
         ci.cancel(); // Don't execute original buggy implementation
+    }
+
+    /**
+     * CRITICAL FIX: Sync NEID arrays TO Ultramine MemSlot AFTER copy() for client chunk sending. When Ultramine creates
+     * ChunkSnapshot for async chunk send, it calls ebs.copy() which creates a NEW ExtendedBlockStorage with slot.copy()
+     * - a COPY of the MemSlot. We must sync NEID → MemSlot in the RETURNED copy, not in the original, because
+     * ChunkSnapshot will use the copied MemSlot to read data.
+     *
+     * This is different from EbsSaveFakeNbt which is only used for disk save, not for chunk send!
+     */
+    @Inject(method = "copy", at = @At("RETURN"), remap = false, require = 0)
+    private void neid$syncAfterCopy(CallbackInfoReturnable<ExtendedBlockStorage> cir) {
+        ExtendedBlockStorage copiedEbs = cir.getReturnValue();
+        if (copiedEbs == null) return;
+
+        System.out
+                .println("[NEID] ExtendedBlockStorage.copy() returned - syncing NEID to COPIED MemSlot for chunk send");
+
+        // Sync THIS object's NEID arrays to the COPIED ExtendedBlockStorage's MemSlot
+        syncNeidToExtendedBlockStorage(copiedEbs);
+    }
+
+    /**
+     * Sync THIS object's NEID arrays to ANOTHER ExtendedBlockStorage's MemSlot. Used when syncing to the copied
+     * ExtendedBlockStorage after copy().
+     */
+    private void syncNeidToExtendedBlockStorage(ExtendedBlockStorage targetEbs) {
+        try {
+            // Get target's MemSlot via reflection
+            Object targetSlot = targetEbs.getClass().getMethod("getSlot").invoke(targetEbs);
+            if (targetSlot == null) {
+                System.out.println("[NEID] Target EBS has no Ultramine slot - skipping sync");
+                return;
+            }
+
+            Class<?> slotClass = targetSlot.getClass();
+            java.lang.reflect.Method setBlockId = slotClass
+                    .getMethod("setBlockId", int.class, int.class, int.class, int.class);
+            java.lang.reflect.Method setMeta = slotClass
+                    .getMethod("setMeta", int.class, int.class, int.class, int.class);
+
+            int synced = 0;
+            int nonAir = 0;
+            int over255 = 0;
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        int index = y << 8 | z << 4 | x;
+                        int blockId = this.block16BArray[index] & 0xFFFF;
+                        int meta = this.block16BMetaArray[index] & 0xFFFF;
+                        if (blockId != 0) {
+                            nonAir++;
+                            if (blockId > 255) over255++;
+                        }
+                        setBlockId.invoke(targetSlot, x, y, z, blockId);
+                        setMeta.invoke(targetSlot, x, y, z, meta);
+                        synced++;
+                    }
+                }
+            }
+            System.out.println(
+                    "[NEID] Synced " + synced
+                            + " blocks to target EBS MemSlot (nonAir="
+                            + nonAir
+                            + ", over255="
+                            + over255
+                            + ")");
+        } catch (Exception e) {
+            System.err.println("[NEID] Failed to sync to target EBS MemSlot: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Sync NEID arrays TO Ultramine MemSlot. Critical for client chunk synchronization.
+     */
+    private void syncNeidToUltramineSlot() {
+        Object slot = getUltramineSlot();
+        if (slot == null) {
+            System.out.println("[NEID] No Ultramine slot - skipping sync");
+            return;
+        }
+
+        try {
+            Class<?> slotClass = slot.getClass();
+            java.lang.reflect.Method setBlockId = slotClass
+                    .getMethod("setBlockId", int.class, int.class, int.class, int.class);
+            java.lang.reflect.Method setMeta = slotClass
+                    .getMethod("setMeta", int.class, int.class, int.class, int.class);
+
+            int synced = 0;
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        int index = y << 8 | z << 4 | x;
+                        int blockId = block16BArray[index] & 0xFFFF;
+                        int meta = block16BMetaArray[index] & 0xFFFF;
+                        setBlockId.invoke(slot, x, y, z, blockId);
+                        setMeta.invoke(slot, x, y, z, meta);
+                        synced++;
+                    }
+                }
+            }
+            System.out.println("[NEID] Synced " + synced + " blocks from NEID to Ultramine MemSlot");
+        } catch (Exception e) {
+            System.err.println("[NEID] Failed to sync to MemSlot: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
 }

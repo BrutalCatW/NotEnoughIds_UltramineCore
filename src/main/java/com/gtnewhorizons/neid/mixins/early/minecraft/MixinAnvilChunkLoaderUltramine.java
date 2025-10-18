@@ -23,6 +23,61 @@ import com.gtnewhorizons.neid.mixins.interfaces.IExtendedBlockStorageMixin;
 public class MixinAnvilChunkLoaderUltramine {
 
     /**
+     * CRITICAL: Inject into EbsSaveFakeNbt loading path (when chunk loaded from memory, not disk). This is called when
+     * Ultramine detects instanceof EbsSaveFakeNbt and tries to copy the EBS directly. We need to load NEID tags from
+     * the EbsSaveFakeNbt's tagMap BEFORE it calls getEbs().copy().
+     */
+    @Inject(
+            method = "readChunkFromNBT",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/nbt/EbsSaveFakeNbt;getEbs()Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;",
+                    shift = At.Shift.BEFORE),
+            locals = LocalCapture.CAPTURE_FAILHARD,
+            require = 0,
+            remap = false)
+    private void neid$loadFromEbsSaveFakeNbt(World par1World, NBTTagCompound par2NBTTagCompound,
+            CallbackInfoReturnable<Chunk> cir, int i, int j, Chunk chunk, NBTTagList nbttaglist, int b0,
+            ExtendedBlockStorage[] aextendedblockstorage, boolean flag, int k, NBTTagCompound nbttagcompound1) {
+
+        System.out.println("[NEID] Loading EbsSaveFakeNbt from memory - checking for NEID tags in tagMap");
+
+        // Check if NEID format exists in EbsSaveFakeNbt's tagMap
+        if (nbttagcompound1.hasKey("Blocks16") && nbttagcompound1.hasKey("Data16")) {
+            System.out.println("[NEID] Found Blocks16/Data16 in EbsSaveFakeNbt tagMap!");
+
+            try {
+                // Get the ExtendedBlockStorage from EbsSaveFakeNbt
+                Object ebsSaveFakeNbt = nbttagcompound1;
+                ExtendedBlockStorage ebs = (ExtendedBlockStorage) ebsSaveFakeNbt.getClass().getMethod("getEbs")
+                        .invoke(ebsSaveFakeNbt);
+
+                IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
+
+                // Load NEID 16-bit format from tagMap
+                byte[] blocks16 = nbttagcompound1.getByteArray("Blocks16");
+                byte[] data16 = nbttagcompound1.getByteArray("Data16");
+
+                System.out.println(
+                        "[NEID] Loaded " + blocks16.length + " bytes Blocks16, " + data16.length + " bytes Data16");
+
+                ebsMixin.setBlockData(blocks16, 0);
+                ebsMixin.setBlockMeta(data16, 0);
+
+                // Sync to Ultramine slot
+                syncNeidToUltramineSlot(ebs, ebsMixin);
+
+                System.out.println("[NEID] Successfully loaded NEID data from EbsSaveFakeNbt!");
+            } catch (Exception e) {
+                System.err.println("[NEID] Failed to load from EbsSaveFakeNbt: " + e.getMessage());
+                e.printStackTrace();
+            }
+        } else {
+            System.out.println("[NEID] No NEID tags in EbsSaveFakeNbt");
+        }
+    }
+
+    /**
      * Inject after ExtendedBlockStorage is created but before slot.setData() is called. We check if NEID format
      * (Blocks16/Data16) exists and load it into our arrays.
      */
