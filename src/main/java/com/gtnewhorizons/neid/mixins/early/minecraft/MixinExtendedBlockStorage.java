@@ -264,23 +264,26 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
     }
 
     /**
-     * CRITICAL FIX: Bidirectional sync for copy() method. FIRST: Sync FROM MemSlot TO NEID arrays (populate NEID arrays
-     * with world data) THEN: copy() creates new ExtendedBlockStorage with copied MemSlot FINALLY: Sync FROM NEID arrays
-     * TO the COPIED MemSlot (ensure copy has correct data)
+     * CRITICAL FIX: Sync NEID arrays TO the COPIED MemSlot after copy() for client chunk sending. When copy() is
+     * called, NEID arrays ALREADY contain correct data (populated by func_150818_a during worldgen). We just need to
+     * sync this data to the COPIED MemSlot so ChunkSnapshot can read it correctly.
      */
-    @Inject(method = "copy", at = @At("HEAD"), remap = false, require = 0)
-    private void neid$syncBeforeCopy(CallbackInfoReturnable<ExtendedBlockStorage> cir) {
-        System.out.println("[NEID] ExtendedBlockStorage.copy() called - syncing FROM MemSlot TO NEID first");
-        syncFromUltramineSlot();
-    }
-
     @Inject(method = "copy", at = @At("RETURN"), remap = false, require = 0)
     private void neid$syncAfterCopy(CallbackInfoReturnable<ExtendedBlockStorage> cir) {
         ExtendedBlockStorage copiedEbs = cir.getReturnValue();
         if (copiedEbs == null) return;
 
-        System.out
-                .println("[NEID] ExtendedBlockStorage.copy() returned - syncing NEID to COPIED MemSlot for chunk send");
+        // Count blocks in NEID arrays BEFORE sync
+        int nonAir = 0;
+        int over255 = 0;
+        for (int i = 0; i < this.block16BArray.length; i++) {
+            int blockId = this.block16BArray[i] & 0xFFFF;
+            if (blockId != 0) {
+                nonAir++;
+                if (blockId > 255) over255++;
+            }
+        }
+        System.out.println("[NEID] copy() - NEID arrays BEFORE sync: nonAir=" + nonAir + ", over255=" + over255);
 
         // Sync THIS object's NEID arrays to the COPIED ExtendedBlockStorage's MemSlot
         syncNeidToExtendedBlockStorage(copiedEbs);
