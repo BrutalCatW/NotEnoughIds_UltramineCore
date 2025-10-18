@@ -264,13 +264,16 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
     }
 
     /**
-     * CRITICAL FIX: Sync NEID arrays TO Ultramine MemSlot AFTER copy() for client chunk sending. When Ultramine creates
-     * ChunkSnapshot for async chunk send, it calls ebs.copy() which creates a NEW ExtendedBlockStorage with slot.copy()
-     * - a COPY of the MemSlot. We must sync NEID → MemSlot in the RETURNED copy, not in the original, because
-     * ChunkSnapshot will use the copied MemSlot to read data.
-     *
-     * This is different from EbsSaveFakeNbt which is only used for disk save, not for chunk send!
+     * CRITICAL FIX: Bidirectional sync for copy() method. FIRST: Sync FROM MemSlot TO NEID arrays (populate NEID arrays
+     * with world data) THEN: copy() creates new ExtendedBlockStorage with copied MemSlot FINALLY: Sync FROM NEID arrays
+     * TO the COPIED MemSlot (ensure copy has correct data)
      */
+    @Inject(method = "copy", at = @At("HEAD"), remap = false, require = 0)
+    private void neid$syncBeforeCopy(CallbackInfoReturnable<ExtendedBlockStorage> cir) {
+        System.out.println("[NEID] ExtendedBlockStorage.copy() called - syncing FROM MemSlot TO NEID first");
+        syncFromUltramineSlot();
+    }
+
     @Inject(method = "copy", at = @At("RETURN"), remap = false, require = 0)
     private void neid$syncAfterCopy(CallbackInfoReturnable<ExtendedBlockStorage> cir) {
         ExtendedBlockStorage copiedEbs = cir.getReturnValue();
@@ -330,6 +333,55 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
                             + ")");
         } catch (Exception e) {
             System.err.println("[NEID] Failed to sync to target EBS MemSlot: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Sync FROM Ultramine MemSlot TO NEID arrays. Populates NEID arrays with world data.
+     */
+    private void syncFromUltramineSlot() {
+        Object slot = getUltramineSlot();
+        if (slot == null) {
+            System.out.println("[NEID] No Ultramine slot - skipping FROM sync");
+            return;
+        }
+
+        try {
+            Class<?> slotClass = slot.getClass();
+            java.lang.reflect.Method getBlockId = slotClass.getMethod("getBlockId", int.class, int.class, int.class);
+            java.lang.reflect.Method getMeta = slotClass.getMethod("getMeta", int.class, int.class, int.class);
+
+            int synced = 0;
+            int nonAir = 0;
+            int over255 = 0;
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        int index = y << 8 | z << 4 | x;
+                        int blockId = (Integer) getBlockId.invoke(slot, x, y, z);
+                        int meta = (Integer) getMeta.invoke(slot, x, y, z);
+
+                        this.block16BArray[index] = (short) (blockId & 0xFFFF);
+                        this.block16BMetaArray[index] = (short) (meta & 0xFFFF);
+
+                        if (blockId != 0) {
+                            nonAir++;
+                            if (blockId > 255) over255++;
+                        }
+                        synced++;
+                    }
+                }
+            }
+            System.out.println(
+                    "[NEID] Synced FROM MemSlot to NEID: " + synced
+                            + " blocks (nonAir="
+                            + nonAir
+                            + ", over255="
+                            + over255
+                            + ")");
+        } catch (Exception e) {
+            System.err.println("[NEID] Failed to sync FROM MemSlot: " + e.getMessage());
             e.printStackTrace();
         }
     }
