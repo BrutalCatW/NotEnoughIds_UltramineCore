@@ -1,6 +1,7 @@
 package com.gtnewhorizons.neid.mixins.early.minecraft;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
 
 import net.minecraft.block.Block;
@@ -44,27 +45,33 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
     @Override
     public byte[] getBlockData() {
         final byte[] ret = new byte[this.block16BArray.length * 2];
-        ByteBuffer.wrap(ret).asShortBuffer().put(this.block16BArray);
+        // CRITICAL: Use BIG_ENDIAN to ensure correct byte order across platforms
+        ByteBuffer.wrap(ret).order(ByteOrder.BIG_ENDIAN).asShortBuffer().put(this.block16BArray);
         return ret;
     }
 
     @Override
     public byte[] getBlockMeta() {
         final byte[] ret = new byte[this.block16BMetaArray.length * 2];
-        ByteBuffer.wrap(ret).asShortBuffer().put(this.block16BMetaArray);
+        // CRITICAL: Use BIG_ENDIAN to ensure correct byte order across platforms
+        ByteBuffer.wrap(ret).order(ByteOrder.BIG_ENDIAN).asShortBuffer().put(this.block16BMetaArray);
         return ret;
     }
 
     @Override
     public void setBlockData(byte[] data, int offset) {
-        ShortBuffer.wrap(this.block16BArray)
-                .put(ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).asShortBuffer());
+        // CRITICAL: Use BIG_ENDIAN to ensure correct byte order across platforms
+        ShortBuffer.wrap(this.block16BArray).put(
+                ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).order(ByteOrder.BIG_ENDIAN)
+                        .asShortBuffer());
     }
 
     @Override
     public void setBlockMeta(byte[] data, int offset) {
-        ShortBuffer.wrap(this.block16BMetaArray)
-                .put(ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).asShortBuffer());
+        // CRITICAL: Use BIG_ENDIAN to ensure correct byte order across platforms
+        ShortBuffer.wrap(this.block16BMetaArray).put(
+                ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).order(ByteOrder.BIG_ENDIAN)
+                        .asShortBuffer());
     }
 
     // Ultramine slot accessor - cached to avoid repeated reflection

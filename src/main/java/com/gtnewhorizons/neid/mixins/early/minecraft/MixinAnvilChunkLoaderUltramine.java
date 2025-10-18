@@ -39,13 +39,18 @@ public class MixinAnvilChunkLoaderUltramine {
             CallbackInfoReturnable<Chunk> cir, int i, int j, Chunk chunk, NBTTagList nbttaglist, int b0,
             ExtendedBlockStorage[] aextendedblockstorage, boolean flag, int k, NBTTagCompound nbttagcompound1, byte b1,
             ExtendedBlockStorage extendedblockstorage) {
+
+        System.out.println("[NEID] Loading chunk section, NBT class: " + nbttagcompound1.getClass().getName());
+
         // Skip if this is an EbsSaveFakeNbt (already loaded) - check via class name to avoid compile dependency
         if (nbttagcompound1.getClass().getName().equals("net.minecraft.nbt.EbsSaveFakeNbt")) {
+            System.out.println("[NEID] Skipping EbsSaveFakeNbt - already loaded from memory");
             return;
         }
 
         // Check if NEID format exists
         if (nbttagcompound1.hasKey("Blocks16") && nbttagcompound1.hasKey("Data16")) {
+            System.out.println("[NEID] Found Blocks16/Data16 tags, loading NEID format");
             IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) extendedblockstorage;
 
             // Load NEID 16-bit format
@@ -59,6 +64,8 @@ public class MixinAnvilChunkLoaderUltramine {
             // The slot.setData() was already called with vanilla format,
             // but we need to overwrite it with NEID data
             syncNeidToUltramineSlot(extendedblockstorage, ebsMixin);
+        } else {
+            System.out.println("[NEID] No Blocks16/Data16 tags found, using vanilla format");
         }
     }
 
@@ -92,9 +99,11 @@ public class MixinAnvilChunkLoaderUltramine {
                     }
                 }
             }
+            System.out.println("[NEID] Successfully synced " + (blocks.length) + " blocks to Ultramine slot");
         } catch (Exception e) {
             // Ultramine slot not available or reflection failed
             System.err.println("[NEID] Failed to sync to Ultramine slot during load: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }

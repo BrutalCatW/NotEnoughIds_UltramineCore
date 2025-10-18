@@ -4,7 +4,6 @@ import java.nio.ByteBuffer;
 import java.nio.ShortBuffer;
 import java.util.function.IntToLongFunction;
 
-import net.minecraft.network.play.server.S21PacketChunkData;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.NibbleArray;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
@@ -25,7 +24,7 @@ import com.llamalad7.mixinextras.injector.WrapWithCondition;
 import com.llamalad7.mixinextras.sugar.Local;
 import com.llamalad7.mixinextras.sugar.ref.LocalIntRef;
 
-@Mixin(S21PacketChunkData.class)
+@Mixin(targets = "net.minecraft.network.play.server.S21PacketChunkData")
 public class MixinS21PacketChunkData {
 
     private static final byte[] fakeByteArray = new byte[0];
@@ -123,13 +122,21 @@ public class MixinS21PacketChunkData {
     }
 
     @Inject(method = "func_149269_a", at = @At("TAIL"), require = 0)
-    private static void neid$modifyChunkData(Chunk chunk, boolean firstSync, int flags,
-            CallbackInfoReturnable<S21PacketChunkData.Extracted> cir, @Local S21PacketChunkData.Extracted data) {
+    private static void neid$modifyChunkData(Chunk chunk, boolean firstSync, int flags, CallbackInfoReturnable<?> cir)
+            throws Exception {
         // Если redirect не вызывался (Ultramine master), не выполняем этот код
         if (!redirectCalled.get()) {
             return;
         }
         redirectCalled.set(false); // Сбрасываем флаг
+
+        // Get return value via reflection to avoid compile dependency on S21PacketChunkData.Extracted
+        Object dataObj = cir.getReturnValue();
+        if (dataObj == null) return;
+
+        java.lang.reflect.Field field150282a = dataObj.getClass().getDeclaredField("field_150282_a");
+        field150282a.setAccessible(true);
+        byte[] dataBytes = (byte[]) field150282a.get(dataObj);
 
         ExtendedBlockStorage[] ebs = chunk.getBlockStorageArray();
 
@@ -142,14 +149,14 @@ public class MixinS21PacketChunkData {
 
         for (int i = 0; i < ebs.length; ++i) {
             if (ebs[i] != null && (!firstSync || !ebs[i].isEmpty()) && (flags & 1 << i) != 0) {
-                blocks[i] = ByteBuffer.wrap(data.field_150282_a, cursor, ebsLength).asShortBuffer();
+                blocks[i] = ByteBuffer.wrap(dataBytes, cursor, ebsLength).asShortBuffer();
                 cursor += ebsLength;
             }
         }
 
         for (int i = 0; i < ebs.length; ++i) {
             if (ebs[i] != null && (!firstSync || !ebs[i].isEmpty()) && (flags & 1 << i) != 0) {
-                metas[i] = ByteBuffer.wrap(data.field_150282_a, cursor, ebsLength).asShortBuffer();
+                metas[i] = ByteBuffer.wrap(dataBytes, cursor, ebsLength).asShortBuffer();
                 cursor += ebsLength;
             }
         }
