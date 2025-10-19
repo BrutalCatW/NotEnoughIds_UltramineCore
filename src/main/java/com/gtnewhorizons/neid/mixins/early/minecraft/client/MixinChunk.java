@@ -57,12 +57,20 @@ public class MixinChunk {
 
         // Ultramine groups all LSB together at start of packet
         int lsbOffset = currentIndex * 4096;
+        System.out.println("[NEID CLIENT] LSB for EBS #" + currentIndex + " at offset=" + lsbOffset);
 
         // Read LSB (4096 bytes) from Ultramine grouped position
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
             int lsb = thebytes[lsbOffset + i] & 0xFF;
             ebsMixin.getBlock16BArray()[i] = (short) lsb;
         }
+
+        // Count non-air blocks
+        int nonAir = 0;
+        for (short s : ebsMixin.getBlock16BArray()) {
+            if ((s & 0xFFFF) != 0) nonAir++;
+        }
+        System.out.println("[NEID CLIENT] LSB read: nonAir=" + nonAir);
 
         // Increment index for next EBS
         ultramineCurrentLsbIndex.set(currentIndex + 1);
@@ -151,6 +159,13 @@ public class MixinChunk {
             msbBaseOffset += (ebsCount * 2048);
         }
         int msbOffset = msbBaseOffset + (currentIndex * 2048);
+        System.out.println(
+                "[NEID CLIENT] MSB for EBS #" + currentIndex
+                        + " at offset="
+                        + msbOffset
+                        + " (skylight="
+                        + hasSkylight
+                        + ")");
 
         // Read MSB from Ultramine grouped position and combine with LSB
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
@@ -163,11 +178,38 @@ public class MixinChunk {
             ebsMixin.getBlock16BArray()[i] = (short) blockId;
         }
 
+        // Count blocks after combining
+        int nonAir = 0;
+        int over255 = 0;
+        for (short s : ebsMixin.getBlock16BArray()) {
+            int blockId = s & 0xFFFF;
+            if (blockId != 0) {
+                nonAir++;
+                if (blockId > 255) over255++;
+            }
+        }
+        System.out.println("[NEID CLIENT] After MSB: nonAir=" + nonAir + ", over255=" + over255);
+
         // Increment index for next EBS
         ultramineCurrentLsbIndex.set(currentIndex + 1);
 
         // CRITICAL: Advance vanilla offset so biome data reads from correct position
         offset.set(offset.get() + 2048);
         return fakeNibbleArray;
+    }
+
+    /**
+     * CRITICAL: Call removeInvalidBlocks() for each EBS after fillChunk to recalculate blockRefCount. Vanilla fillChunk
+     * doesn't call it on client, so isEmpty() returns true and chunks don't render!
+     */
+    @Inject(method = "fillChunk", at = @At("RETURN"))
+    private void neid$recalculateBlockCounts(byte[] data, int mask, int additionalMask, boolean skylight,
+            CallbackInfo ci) {
+        for (int i = 0; i < storageArrays.length; i++) {
+            if (storageArrays[i] != null && (mask & (1 << i)) != 0) {
+                storageArrays[i].removeInvalidBlocks();
+            }
+        }
+        System.out.println("[NEID CLIENT] fillChunk() RETURN: called removeInvalidBlocks() for mask=" + mask);
     }
 }
