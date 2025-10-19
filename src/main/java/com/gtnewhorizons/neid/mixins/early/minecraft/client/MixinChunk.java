@@ -30,6 +30,7 @@ public class MixinChunk {
     private static final ThreadLocal<Integer> ultramineEbsCount = new ThreadLocal<>();
     private static final ThreadLocal<Integer> ultramineCurrentLsbIndex = new ThreadLocal<>();
     private static final ThreadLocal<Integer> ultramineCurrentMetaIndex = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> ultramineHasSkylight = new ThreadLocal<>();
 
     @Shadow
     private ExtendedBlockStorage[] storageArrays;
@@ -48,6 +49,7 @@ public class MixinChunk {
         ultramineEbsCount.set(ebsCount);
         ultramineCurrentLsbIndex.set(0);
         ultramineCurrentMetaIndex.set(0);
+        ultramineHasSkylight.set(skylight);
         System.out.println("[NEID CLIENT] fillChunk() HEAD: ebsCount=" + ebsCount + ", skylight=" + skylight);
     }
 
@@ -152,10 +154,11 @@ public class MixinChunk {
                     target = "Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;getBlockMSBArray()Lnet/minecraft/world/chunk/NibbleArray;"),
             require = 0)
     private NibbleArray neid$injectMSBRead(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
-            @Local(ordinal = 2) LocalIntRef offset, @Local(ordinal = 4) boolean hasSkylight) {
+            @Local(ordinal = 2) LocalIntRef offset) {
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
         int currentIndex = ultramineCurrentLsbIndex.get(); // Reuse LSB index (reset before MSB loop)
         int ebsCount = ultramineEbsCount.get();
+        boolean hasSkylight = ultramineHasSkylight.get();
 
         // Ultramine groups all MSB after [LSB][Metadata][Blocklight][Skylight]
         // MSB offset = (ebsCount * 4096) + (ebsCount * 2048) + (ebsCount * 2048) + (ebsCount * 2048 if skylight) +
