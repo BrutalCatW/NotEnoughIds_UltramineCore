@@ -34,16 +34,18 @@ public class MixinChunk {
             require = 1)
     private byte[] neid$injectNewDataCopy(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
-        System.out.println("[NEID CLIENT] fillChunk() reading LSB at offset=" + offset.get());
+        int startOffset = offset.get();
+        System.out.println("[NEID CLIENT] fillChunk() LSB at offset=" + startOffset + " (reading 4096 bytes)");
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
 
         // Read LSB (4096 bytes) into lower 8 bits of block16BArray
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
-            int lsb = thebytes[offset.get() + i] & 0xFF;
+            int lsb = thebytes[startOffset + i] & 0xFF;
             ebsMixin.getBlock16BArray()[i] = (short) lsb;
         }
 
-        offset.set(offset.get() + 4096);
+        offset.set(startOffset + 4096);
+        System.out.println("[NEID CLIENT] LSB done, new offset=" + offset.get());
         return fakeByteArray;
     }
 
@@ -55,18 +57,20 @@ public class MixinChunk {
             require = 1)
     private NibbleArray neid$injectNewMetadataCopy(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
-        System.out.println("[NEID CLIENT] fillChunk() reading metadata nibbles at offset=" + offset.get());
+        int startOffset = offset.get();
+        System.out.println("[NEID CLIENT] fillChunk() metadata at offset=" + startOffset + " (reading 2048 bytes)");
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
 
         // Read metadata (2048 bytes = 4096 nibbles) into block16BMetaArray
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
             int byteIndex = i / 2;
-            int nibble = (i & 1) == 0 ? (thebytes[offset.get() + byteIndex] & 0x0F)
-                    : ((thebytes[offset.get() + byteIndex] >> 4) & 0x0F);
+            int nibble = (i & 1) == 0 ? (thebytes[startOffset + byteIndex] & 0x0F)
+                    : ((thebytes[startOffset + byteIndex] >> 4) & 0x0F);
             ebsMixin.getBlock16BMetaArray()[i] = (short) nibble;
         }
 
-        offset.set(offset.get() + 2048);
+        offset.set(startOffset + 2048);
+        System.out.println("[NEID CLIENT] Metadata done, new offset=" + offset.get());
         return fakeNibbleArray;
     }
 
@@ -110,7 +114,8 @@ public class MixinChunk {
             require = 0)
     private NibbleArray neid$injectMSBRead(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
-        System.out.println("[NEID CLIENT] fillChunk() reading MSB nibbles at offset=" + offset.get());
+        int startOffset = offset.get();
+        System.out.println("[NEID CLIENT] fillChunk() MSB at offset=" + startOffset + " (reading 2048 bytes)");
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
 
         // Read MSB (2048 bytes = 4096 nibbles) and combine with LSB
@@ -136,6 +141,9 @@ public class MixinChunk {
             }
         }
         System.out.println("[NEID CLIENT] After MSB: nonAir=" + nonAir + ", over255=" + over255);
+
+        // Client uses vanilla Forge (no MemSlot) - NEID arrays are used directly for rendering
+        // No need to sync to MemSlot on client!
 
         offset.set(offset.get() + 2048);
         return fakeNibbleArray;
