@@ -8,10 +8,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Constant;
-import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyConstant;
 import org.spongepowered.asm.mixin.injection.Redirect;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.gtnewhorizons.neid.Constants;
 import com.gtnewhorizons.neid.mixins.interfaces.IExtendedBlockStorageMixin;
@@ -25,33 +23,8 @@ public class MixinChunk {
     private static final byte[] fakeByteArray = new byte[0];
     private static final NibbleArray fakeNibbleArray = new NibbleArray(0, 0);
 
-    // Track packet data for Ultramine grouped format
-    private static final ThreadLocal<byte[]> ultraminePacketData = new ThreadLocal<>();
-    private static final ThreadLocal<Integer> ultramineEbsCount = new ThreadLocal<>();
-    private static final ThreadLocal<Integer> ultramineCurrentLsbIndex = new ThreadLocal<>();
-    private static final ThreadLocal<Integer> ultramineCurrentMetaIndex = new ThreadLocal<>();
-    private static final ThreadLocal<Boolean> ultramineHasSkylight = new ThreadLocal<>();
-
     @Shadow
     private ExtendedBlockStorage[] storageArrays;
-
-    /**
-     * Initialize Ultramine packet data tracking at the start of fillChunk. Ultramine sends data in GROUPED format: [all
-     * LSB][all Metadata][all Blocklight][all Skylight][all MSB] But vanilla fillChunk expects INTERLEAVED format:
-     * [LSB][Meta][BL][SL] for each EBS, then [all MSB]
-     */
-    @Inject(method = "fillChunk", at = @At("HEAD"))
-    private void neid$initUltraminePacketTracking(byte[] data, int mask, int additionalMask, boolean skylight,
-            CallbackInfo ci) {
-        // Count how many EBS are in this packet (mask is primary, additionalMask is for extended height)
-        int ebsCount = Integer.bitCount(mask);
-        ultraminePacketData.set(data);
-        ultramineEbsCount.set(ebsCount);
-        ultramineCurrentLsbIndex.set(0);
-        ultramineCurrentMetaIndex.set(0);
-        ultramineHasSkylight.set(skylight);
-        System.out.println("[NEID CLIENT] fillChunk() HEAD: ebsCount=" + ebsCount + ", skylight=" + skylight);
-    }
 
     @Redirect(
             method = "fillChunk",
@@ -61,23 +34,18 @@ public class MixinChunk {
             require = 1)
     private byte[] neid$injectNewDataCopy(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
+        int startOffset = offset.get();
+        System.out.println("[NEID CLIENT] fillChunk() LSB at offset=" + startOffset + " (reading 4096 bytes)");
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
-        int currentIndex = ultramineCurrentLsbIndex.get();
-
-        // Ultramine groups all LSB together: LSB is at offset (currentIndex * 4096)
-        int lsbOffset = currentIndex * 4096;
-        System.out.println("[NEID CLIENT] LSB for EBS #" + currentIndex + " at offset=" + lsbOffset);
 
         // Read LSB (4096 bytes) into lower 8 bits of block16BArray
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
-            int lsb = thebytes[lsbOffset + i] & 0xFF;
+            int lsb = thebytes[startOffset + i] & 0xFF;
             ebsMixin.getBlock16BArray()[i] = (short) lsb;
         }
 
-        // Increment LSB index for next EBS
-        ultramineCurrentLsbIndex.set(currentIndex + 1);
-
-        // DON'T modify offset - vanilla will handle it for blocklight/skylight
+        offset.set(startOffset + 4096);
+        System.out.println("[NEID CLIENT] LSB done, new offset=" + offset.get());
         return fakeByteArray;
     }
 
@@ -89,26 +57,20 @@ public class MixinChunk {
             require = 1)
     private NibbleArray neid$injectNewMetadataCopy(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
+        int startOffset = offset.get();
+        System.out.println("[NEID CLIENT] fillChunk() metadata at offset=" + startOffset + " (reading 2048 bytes)");
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
-        int currentIndex = ultramineCurrentMetaIndex.get();
-        int ebsCount = ultramineEbsCount.get();
-
-        // Ultramine groups all Metadata after all LSB: offset = (ebsCount * 4096) + (currentIndex * 2048)
-        int metaOffset = (ebsCount * 4096) + (currentIndex * 2048);
-        System.out.println("[NEID CLIENT] Metadata for EBS #" + currentIndex + " at offset=" + metaOffset);
 
         // Read metadata (2048 bytes = 4096 nibbles) into block16BMetaArray
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
             int byteIndex = i / 2;
-            int nibble = (i & 1) == 0 ? (thebytes[metaOffset + byteIndex] & 0x0F)
-                    : ((thebytes[metaOffset + byteIndex] >> 4) & 0x0F);
+            int nibble = (i & 1) == 0 ? (thebytes[startOffset + byteIndex] & 0x0F)
+                    : ((thebytes[startOffset + byteIndex] >> 4) & 0x0F);
             ebsMixin.getBlock16BMetaArray()[i] = (short) nibble;
         }
 
-        // Increment Metadata index for next EBS
-        ultramineCurrentMetaIndex.set(currentIndex + 1);
-
-        // DON'T modify offset - vanilla will handle it for blocklight/skylight
+        offset.set(startOffset + 2048);
+        System.out.println("[NEID CLIENT] Metadata done, new offset=" + offset.get());
         return fakeNibbleArray;
     }
 
@@ -137,9 +99,6 @@ public class MixinChunk {
     @ModifyConstant(method = "fillChunk", constant = @Constant(intValue = 0, ordinal = 10), require = 0)
     private int neid$AllowMSBForLoop(int i) {
         // Allow MSB loop to run - we need it to read high 4 bits from Ultramine packed format
-        // Reset MSB index for MSB loop (reuse LsbIndex ThreadLocal)
-        ultramineCurrentLsbIndex.set(0);
-        System.out.println("[NEID CLIENT] Starting MSB loop, reset index to 0");
         return 0;
     }
 
@@ -155,32 +114,15 @@ public class MixinChunk {
             require = 0)
     private NibbleArray neid$injectMSBRead(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
+        int startOffset = offset.get();
+        System.out.println("[NEID CLIENT] fillChunk() MSB at offset=" + startOffset + " (reading 2048 bytes)");
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
-        int currentIndex = ultramineCurrentLsbIndex.get(); // Reuse LSB index (reset before MSB loop)
-        int ebsCount = ultramineEbsCount.get();
-        boolean hasSkylight = ultramineHasSkylight.get();
-
-        // Ultramine groups all MSB after [LSB][Metadata][Blocklight][Skylight]
-        // MSB offset = (ebsCount * 4096) + (ebsCount * 2048) + (ebsCount * 2048) + (ebsCount * 2048 if skylight) +
-        // (currentIndex * 2048)
-        int msbBaseOffset = (ebsCount * 4096) + (ebsCount * 2048) + (ebsCount * 2048); // LSB + Meta + Blocklight
-        if (hasSkylight) {
-            msbBaseOffset += (ebsCount * 2048); // Add skylight section
-        }
-        int msbOffset = msbBaseOffset + (currentIndex * 2048);
-        System.out.println(
-                "[NEID CLIENT] MSB for EBS #" + currentIndex
-                        + " at offset="
-                        + msbOffset
-                        + " (hasSkylight="
-                        + hasSkylight
-                        + ")");
 
         // Read MSB (2048 bytes = 4096 nibbles) and combine with LSB
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
             int byteIndex = i / 2;
-            int nibble = (i & 1) == 0 ? (thebytes[msbOffset + byteIndex] & 0x0F)
-                    : ((thebytes[msbOffset + byteIndex] >> 4) & 0x0F);
+            int nibble = (i & 1) == 0 ? (thebytes[offset.get() + byteIndex] & 0x0F)
+                    : ((thebytes[offset.get() + byteIndex] >> 4) & 0x0F);
 
             // Combine MSB (high 4 bits) with existing LSB (low 8 bits)
             int lsb = ebsMixin.getBlock16BArray()[i] & 0xFF;
@@ -200,10 +142,10 @@ public class MixinChunk {
         }
         System.out.println("[NEID CLIENT] After MSB: nonAir=" + nonAir + ", over255=" + over255);
 
-        // Increment MSB index for next EBS
-        ultramineCurrentLsbIndex.set(currentIndex + 1);
+        // Client uses vanilla Forge (no MemSlot) - NEID arrays are used directly for rendering
+        // No need to sync to MemSlot on client!
 
-        // DON'T modify offset - vanilla doesn't need it after MSB
+        offset.set(offset.get() + 2048);
         return fakeNibbleArray;
     }
 }
