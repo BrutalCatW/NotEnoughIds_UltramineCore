@@ -40,11 +40,11 @@ public class MixinAnvilChunkLoaderUltramine {
             CallbackInfoReturnable<Chunk> cir, int i, int j, Chunk chunk, NBTTagList nbttaglist, int b0,
             ExtendedBlockStorage[] aextendedblockstorage, boolean flag, int k, NBTTagCompound nbttagcompound1) {
 
-        System.out.println("[NEID] Loading EbsSaveFakeNbt from memory - checking for NEID tags in tagMap");
+        // System.out.println("[NEID] Loading EbsSaveFakeNbt from memory - checking for NEID tags in tagMap");
 
         // Check if NEID format exists in EbsSaveFakeNbt's tagMap
         if (nbttagcompound1.hasKey("Blocks16") && nbttagcompound1.hasKey("Data16")) {
-            System.out.println("[NEID] Found Blocks16/Data16 in EbsSaveFakeNbt tagMap!");
+            // System.out.println("[NEID] Found Blocks16/Data16 in EbsSaveFakeNbt tagMap!");
 
             try {
                 // Get the ExtendedBlockStorage from EbsSaveFakeNbt
@@ -58,8 +58,8 @@ public class MixinAnvilChunkLoaderUltramine {
                 byte[] blocks16 = nbttagcompound1.getByteArray("Blocks16");
                 byte[] data16 = nbttagcompound1.getByteArray("Data16");
 
-                System.out.println(
-                        "[NEID] Loaded " + blocks16.length + " bytes Blocks16, " + data16.length + " bytes Data16");
+                // System.out.println(
+                // "[NEID] Loaded " + blocks16.length + " bytes Blocks16, " + data16.length + " bytes Data16");
 
                 ebsMixin.setBlockData(blocks16, 0);
                 ebsMixin.setBlockMeta(data16, 0);
@@ -67,13 +67,13 @@ public class MixinAnvilChunkLoaderUltramine {
                 // Sync to Ultramine slot
                 syncNeidToUltramineSlot(ebs, ebsMixin);
 
-                System.out.println("[NEID] Successfully loaded NEID data from EbsSaveFakeNbt!");
+                // System.out.println("[NEID] Successfully loaded NEID data from EbsSaveFakeNbt!");
             } catch (Exception e) {
                 System.err.println("[NEID] Failed to load from EbsSaveFakeNbt: " + e.getMessage());
                 e.printStackTrace();
             }
         } else {
-            System.out.println("[NEID] No NEID tags in EbsSaveFakeNbt");
+            // System.out.println("[NEID] No NEID tags in EbsSaveFakeNbt");
         }
     }
 
@@ -95,17 +95,17 @@ public class MixinAnvilChunkLoaderUltramine {
             ExtendedBlockStorage[] aextendedblockstorage, boolean flag, int k, NBTTagCompound nbttagcompound1, byte b1,
             ExtendedBlockStorage extendedblockstorage) {
 
-        System.out.println("[NEID] Loading chunk section, NBT class: " + nbttagcompound1.getClass().getName());
+        // System.out.println("[NEID] Loading chunk section, NBT class: " + nbttagcompound1.getClass().getName());
 
         // Skip if this is an EbsSaveFakeNbt (already loaded) - check via class name to avoid compile dependency
         if (nbttagcompound1.getClass().getName().equals("net.minecraft.nbt.EbsSaveFakeNbt")) {
-            System.out.println("[NEID] Skipping EbsSaveFakeNbt - already loaded from memory");
+            // System.out.println("[NEID] Skipping EbsSaveFakeNbt - already loaded from memory");
             return;
         }
 
         // Check if NEID format exists
         if (nbttagcompound1.hasKey("Blocks16") && nbttagcompound1.hasKey("Data16")) {
-            System.out.println("[NEID] Found Blocks16/Data16 tags, loading NEID format");
+            // System.out.println("[NEID] Found Blocks16/Data16 tags, loading NEID format");
             IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) extendedblockstorage;
 
             // Load NEID 16-bit format
@@ -120,7 +120,7 @@ public class MixinAnvilChunkLoaderUltramine {
             // but we need to overwrite it with NEID data
             syncNeidToUltramineSlot(extendedblockstorage, ebsMixin);
         } else {
-            System.out.println("[NEID] No Blocks16/Data16 tags found, using vanilla format");
+            // System.out.println("[NEID] No Blocks16/Data16 tags found, using vanilla format");
         }
     }
 
@@ -154,7 +154,7 @@ public class MixinAnvilChunkLoaderUltramine {
                     }
                 }
             }
-            System.out.println("[NEID] Successfully synced " + (blocks.length) + " blocks to Ultramine slot");
+            // System.out.println("[NEID] Successfully synced " + (blocks.length) + " blocks to Ultramine slot");
         } catch (Exception e) {
             // Ultramine slot not available or reflection failed
             System.err.println("[NEID] Failed to sync to Ultramine slot during load: " + e.getMessage());

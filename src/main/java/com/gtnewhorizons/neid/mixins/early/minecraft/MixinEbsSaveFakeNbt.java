@@ -37,23 +37,23 @@ public class MixinEbsSaveFakeNbt {
      */
     @Inject(method = "convertToNbt", at = @At("RETURN"), require = 0, remap = false)
     private void neid$addNeidTags(CallbackInfo ci) {
-        System.out.println("[NEID] EbsSaveFakeNbt.convertToNbt() RETURN - adding NEID tags");
+        // System.out.println("[NEID] EbsSaveFakeNbt.convertToNbt() RETURN - adding NEID tags");
 
         try {
             IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
 
             // Add NEID Blocks16 tag
             byte[] blocks16 = ebsMixin.getBlockData();
-            System.out.println("[NEID] Adding Blocks16 tag: " + blocks16.length + " bytes");
+            // System.out.println("[NEID] Adding Blocks16 tag: " + blocks16.length + " bytes");
             // Use reflection to call setByteArray on this NBTTagCompound
             this.getClass().getMethod("setByteArray", String.class, byte[].class).invoke(this, "Blocks16", blocks16);
 
             // Add NEID Data16 tag
             byte[] data16 = ebsMixin.getBlockMeta();
-            System.out.println("[NEID] Adding Data16 tag: " + data16.length + " bytes");
+            // System.out.println("[NEID] Adding Data16 tag: " + data16.length + " bytes");
             this.getClass().getMethod("setByteArray", String.class, byte[].class).invoke(this, "Data16", data16);
 
-            System.out.println("[NEID] NEID tags added successfully");
+            // System.out.println("[NEID] NEID tags added successfully");
         } catch (Exception e) {
             System.err.println("[NEID] Failed to add NEID tags: " + e.getMessage());
             e.printStackTrace();
@@ -65,7 +65,7 @@ public class MixinEbsSaveFakeNbt {
      */
     @Inject(method = "copy", at = @At("HEAD"), require = 0, remap = false)
     private void neid$logCopy(CallbackInfoReturnable<?> cir) {
-        System.out.println("[NEID] EbsSaveFakeNbt.copy() called, isNbt=" + isNbt);
+        // System.out.println("[NEID] EbsSaveFakeNbt.copy() called, isNbt=" + isNbt);
     }
 
     /**
@@ -74,20 +74,20 @@ public class MixinEbsSaveFakeNbt {
      */
     @Inject(method = "<init>", at = @At("RETURN"), require = 0, remap = false)
     private void neid$addNeidTagsInConstructor(ExtendedBlockStorage ebs, boolean hasNoSky, CallbackInfo ci) {
-        System.out.println("[NEID] EbsSaveFakeNbt constructed for Y=" + (ebs.getYLocation() >> 4));
+        // System.out.println("[NEID] EbsSaveFakeNbt constructed for Y=" + (ebs.getYLocation() >> 4));
 
         // Sync data FROM Ultramine slot TO NEID arrays
         IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
         syncFromUltramineSlot(ebs, ebsMixin);
-        System.out.println("[NEID] Synced data from Ultramine slot");
+        // System.out.println("[NEID] Synced data from Ultramine slot");
 
         // Add NEID tags DIRECTLY to this NBTTagCompound's tagMap!
         try {
             byte[] blocks16 = ebsMixin.getBlockData();
             byte[] data16 = ebsMixin.getBlockMeta();
 
-            System.out.println("[NEID] Adding Blocks16 (" + blocks16.length + " bytes) to tagMap");
-            System.out.println("[NEID] Adding Data16 (" + data16.length + " bytes) to tagMap");
+            // System.out.println("[NEID] Adding Blocks16 (" + blocks16.length + " bytes) to tagMap");
+            // System.out.println("[NEID] Adding Data16 (" + data16.length + " bytes) to tagMap");
 
             // CRITICAL FIX: EbsSaveFakeNbt is created with Collections.emptyMap()!
             // We MUST call createMap() first to make tagMap mutable!
@@ -96,7 +96,7 @@ public class MixinEbsSaveFakeNbt {
                         .getDeclaredMethod("createMap", int.class);
                 createMapMethod.setAccessible(true);
                 createMapMethod.invoke(this, 0); // Create mutable map
-                System.out.println("[NEID] Created mutable tagMap via reflection");
+                // System.out.println("[NEID] Created mutable tagMap via reflection");
             } catch (Exception createMapEx) {
                 System.err.println("[NEID] Failed to create mutable map: " + createMapEx.getMessage());
                 createMapEx.printStackTrace();
@@ -108,12 +108,12 @@ public class MixinEbsSaveFakeNbt {
             nbt.setByteArray("Blocks16", blocks16);
             nbt.setByteArray("Data16", data16);
 
-            System.out.println("[NEID] NEID tags added to tagMap successfully!");
+            // System.out.println("[NEID] NEID tags added to tagMap successfully!");
 
             // CRITICAL: Now sync BACK to Ultramine slot for client!
             // This ensures ChunkSnapshot reads correct 16-bit IDs when sending to client
             syncNeidToUltramineSlot(ebs, ebsMixin);
-            System.out.println("[NEID] Synced NEID arrays back to MemSlot for client");
+            // System.out.println("[NEID] Synced NEID arrays back to MemSlot for client");
         } catch (Exception e) {
             System.err.println("[NEID] FAILED to add NEID tags: " + e.getMessage());
             e.printStackTrace();
@@ -129,7 +129,7 @@ public class MixinEbsSaveFakeNbt {
             require = 0,
             remap = false)
     private void neid$writeNeidBeforeEnd(DataOutput out, int endMarker) throws IOException {
-        System.out.println("[NEID] Redirecting writeByte(0) to add NEID tags");
+        // System.out.println("[NEID] Redirecting writeByte(0) to add NEID tags");
 
         // Only add NEID tags if NOT in NBT form (meaning write() is serializing from slot)
         if (!isNbt) {
@@ -137,7 +137,7 @@ public class MixinEbsSaveFakeNbt {
 
             // Write NEID Blocks16
             byte[] blocks16 = ebsMixin.getBlockData();
-            System.out.println("[NEID] Writing Blocks16: " + blocks16.length + " bytes");
+            // System.out.println("[NEID] Writing Blocks16: " + blocks16.length + " bytes");
             writeByteArray(out, "Blocks16", blocks16, 0, blocks16.length);
 
             // Write NEID Data16
@@ -147,7 +147,7 @@ public class MixinEbsSaveFakeNbt {
 
         // Write the end marker
         out.writeByte(endMarker);
-        System.out.println("[NEID] Wrote end marker");
+        // System.out.println("[NEID] Wrote end marker");
     }
 
     /**
@@ -155,8 +155,8 @@ public class MixinEbsSaveFakeNbt {
      */
     @Inject(method = "write", at = @At("HEAD"), require = 0, remap = false)
     private void neid$logWrite(DataOutput out, CallbackInfo ci) {
-        System.out
-                .println("[NEID] EbsSaveFakeNbt.write() called - isNbt=" + isNbt + ", Y=" + (ebs.getYLocation() >> 4));
+        // System.out
+        // .println("[NEID] EbsSaveFakeNbt.write() called - isNbt=" + isNbt + ", Y=" + (ebs.getYLocation() >> 4));
     }
 
     /**
@@ -198,7 +198,7 @@ public class MixinEbsSaveFakeNbt {
             // Try to get Ultramine's slot via reflection
             Object slot = storage.getClass().getMethod("getSlot").invoke(storage);
             if (slot == null) {
-                System.out.println("[NEID] No Ultramine slot found, skipping sync");
+                // System.out.println("[NEID] No Ultramine slot found, skipping sync");
                 return;
             }
 
@@ -221,10 +221,10 @@ public class MixinEbsSaveFakeNbt {
                     }
                 }
             }
-            System.out.println("[NEID] Successfully synced FROM Ultramine slot to NEID arrays");
+            // System.out.println("[NEID] Successfully synced FROM Ultramine slot to NEID arrays");
         } catch (Exception e) {
             // Not Ultramine or reflection failed - data is already in our arrays
-            System.out.println("[NEID] Sync from slot failed (probably not Ultramine): " + e.getMessage());
+            // System.out.println("[NEID] Sync from slot failed (probably not Ultramine): " + e.getMessage());
         }
     }
 
@@ -236,7 +236,7 @@ public class MixinEbsSaveFakeNbt {
         try {
             Object slot = storage.getClass().getMethod("getSlot").invoke(storage);
             if (slot == null) {
-                System.out.println("[NEID] No Ultramine slot found, skipping reverse sync");
+                // System.out.println("[NEID] No Ultramine slot found, skipping reverse sync");
                 return;
             }
 
@@ -261,7 +261,7 @@ public class MixinEbsSaveFakeNbt {
                     }
                 }
             }
-            System.out.println("[NEID] Successfully synced " + blocks.length + " blocks to Ultramine slot");
+            // System.out.println("[NEID] Successfully synced " + blocks.length + " blocks to Ultramine slot");
         } catch (Exception e) {
             System.err.println("[NEID] Failed to sync NEID to slot: " + e.getMessage());
             e.printStackTrace();

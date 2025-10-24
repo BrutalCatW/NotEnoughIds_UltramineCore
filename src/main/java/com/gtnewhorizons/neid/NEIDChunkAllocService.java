@@ -26,10 +26,10 @@ public class NEIDChunkAllocService {
             serviceManagerClass.getMethod("register", Class.class, Object.class, int.class)
                     .invoke(serviceManager, allocServiceClass, new NEIDChunkAllocService(), 1000);
 
-            System.out.println("[NEID] Successfully registered NEIDChunkAllocService with priority 1000");
+            // System.out.println("[NEID] Successfully registered NEIDChunkAllocService with priority 1000");
         } catch (ClassNotFoundException e) {
             // Not running on Ultramine - this is fine
-            System.out.println("[NEID] Running on standard Forge (Ultramine not detected)");
+            // System.out.println("[NEID] Running on standard Forge (Ultramine not detected)");
         } catch (Exception e) {
             System.err.println("[NEID] Failed to register Ultramine service: " + e.getMessage());
             e.printStackTrace();

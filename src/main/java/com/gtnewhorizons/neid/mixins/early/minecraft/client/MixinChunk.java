@@ -66,7 +66,7 @@ public class MixinChunk {
 
         // Ultramine groups all LSB together at start of packet
         int lsbOffset = currentIndex * 4096;
-        System.out.println("[NEID CLIENT] LSB for EBS #" + currentIndex + " at offset=" + lsbOffset);
+        // System.out.println("[NEID CLIENT] LSB for EBS #" + currentIndex + " at offset=" + lsbOffset);
 
         // Read LSB (4096 bytes) from Ultramine grouped position
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
@@ -75,11 +75,11 @@ public class MixinChunk {
         }
 
         // Count non-air blocks
-        int nonAir = 0;
-        for (short s : ebsMixin.getBlock16BArray()) {
-            if ((s & 0xFFFF) != 0) nonAir++;
-        }
-        System.out.println("[NEID CLIENT] LSB read: nonAir=" + nonAir);
+        // int nonAir = 0;
+        // for (short s : ebsMixin.getBlock16BArray()) {
+        // if ((s & 0xFFFF) != 0) nonAir++;
+        // }
+        // System.out.println("[NEID CLIENT] LSB read: nonAir=" + nonAir);
 
         // Increment index for next EBS
         ultramineCurrentLsbIndex.set(currentIndex + 1);
@@ -168,13 +168,13 @@ public class MixinChunk {
             msbBaseOffset += (ebsCount * 2048);
         }
         int msbOffset = msbBaseOffset + (currentIndex * 2048);
-        System.out.println(
-                "[NEID CLIENT] MSB for EBS #" + currentIndex
-                        + " at offset="
-                        + msbOffset
-                        + " (skylight="
-                        + hasSkylight
-                        + ")");
+        // System.out.println(
+        // "[NEID CLIENT] MSB for EBS #" + currentIndex
+        // + " at offset="
+        // + msbOffset
+        // + " (skylight="
+        // + hasSkylight
+        // + ")");
 
         // Read MSB from Ultramine grouped position and combine with LSB
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
@@ -188,16 +188,16 @@ public class MixinChunk {
         }
 
         // Count blocks after combining
-        int nonAir = 0;
-        int over255 = 0;
-        for (short s : ebsMixin.getBlock16BArray()) {
-            int blockId = s & 0xFFFF;
-            if (blockId != 0) {
-                nonAir++;
-                if (blockId > 255) over255++;
-            }
-        }
-        System.out.println("[NEID CLIENT] After MSB: nonAir=" + nonAir + ", over255=" + over255);
+        // int nonAir = 0;
+        // int over255 = 0;
+        // for (short s : ebsMixin.getBlock16BArray()) {
+        // int blockId = s & 0xFFFF;
+        // if (blockId != 0) {
+        // nonAir++;
+        // if (blockId > 255) over255++;
+        // }
+        // }
+        // System.out.println("[NEID CLIENT] After MSB: nonAir=" + nonAir + ", over255=" + over255);
 
         // Increment index for next EBS
         ultramineCurrentLsbIndex.set(currentIndex + 1);
@@ -221,7 +221,7 @@ public class MixinChunk {
                 storageArrays[i].removeInvalidBlocks();
             }
         }
-        System.out.println("[NEID CLIENT] fillChunk() RETURN: called removeInvalidBlocks() for mask=" + mask);
+        // System.out.println("[NEID CLIENT] fillChunk() RETURN: called removeInvalidBlocks() for mask=" + mask);
 
         // CRITICAL: Force render update! Renderer may have cached "empty chunk" state before fillChunk
         // This is especially important for newly generated chunks that didn't exist on client before
@@ -229,7 +229,7 @@ public class MixinChunk {
             int minX = xPosition << 4;
             int minZ = zPosition << 4;
             worldObj.markBlockRangeForRenderUpdate(minX, 0, minZ, minX + 15, 256, minZ + 15);
-            System.out.println("[NEID CLIENT] Forced render update for chunk " + xPosition + "," + zPosition);
+            // System.out.println("[NEID CLIENT] Forced render update for chunk " + xPosition + "," + zPosition);
         }
     }
 }
