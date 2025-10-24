@@ -1,7 +1,6 @@
 package com.gtnewhorizons.neid.mixins.early.minecraft;
 
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
 
 import net.minecraft.block.Block;
@@ -46,33 +45,31 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
     @Override
     public byte[] getBlockData() {
         final byte[] ret = new byte[this.block16BArray.length * 2];
-        // CRITICAL: Use BIG_ENDIAN to ensure correct byte order across platforms
-        ByteBuffer.wrap(ret).order(ByteOrder.BIG_ENDIAN).asShortBuffer().put(this.block16BArray);
+        // Use native byte order (little-endian on x86) to match Ultramine server
+        ByteBuffer.wrap(ret).asShortBuffer().put(this.block16BArray);
         return ret;
     }
 
     @Override
     public byte[] getBlockMeta() {
         final byte[] ret = new byte[this.block16BMetaArray.length * 2];
-        // CRITICAL: Use BIG_ENDIAN to ensure correct byte order across platforms
-        ByteBuffer.wrap(ret).order(ByteOrder.BIG_ENDIAN).asShortBuffer().put(this.block16BMetaArray);
+        // Use native byte order (little-endian on x86) to match Ultramine server
+        ByteBuffer.wrap(ret).asShortBuffer().put(this.block16BMetaArray);
         return ret;
     }
 
     @Override
     public void setBlockData(byte[] data, int offset) {
-        // CRITICAL: Use BIG_ENDIAN to ensure correct byte order across platforms
-        ShortBuffer.wrap(this.block16BArray).put(
-                ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).order(ByteOrder.BIG_ENDIAN)
-                        .asShortBuffer());
+        // Use native byte order (little-endian on x86) to match Ultramine server
+        ShortBuffer.wrap(this.block16BArray)
+                .put(ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).asShortBuffer());
     }
 
     @Override
     public void setBlockMeta(byte[] data, int offset) {
-        // CRITICAL: Use BIG_ENDIAN to ensure correct byte order across platforms
-        ShortBuffer.wrap(this.block16BMetaArray).put(
-                ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).order(ByteOrder.BIG_ENDIAN)
-                        .asShortBuffer());
+        // Use native byte order (little-endian on x86) to match Ultramine server
+        ShortBuffer.wrap(this.block16BMetaArray)
+                .put(ByteBuffer.wrap(data, offset, Constants.BLOCKS_PER_EBS * 2).asShortBuffer());
     }
 
     // Ultramine slot accessor - cached to avoid repeated reflection
@@ -213,6 +210,10 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
      */
     @Overwrite
     public void removeInvalidBlocks() {
+        // CRITICAL: Reset counters before counting! Otherwise fillChunk() will accumulate counts
+        this.blockRefCount = 0;
+        this.tickRefCount = 0;
+
         for (int off = 0; off < block16BArray.length; ++off) {
             final int id = block16BArray[off] & 0xFFFF;
             if (id > 0) {

@@ -34,6 +34,15 @@ public class MixinChunk {
     @Shadow
     private ExtendedBlockStorage[] storageArrays;
 
+    @Shadow
+    public int xPosition;
+
+    @Shadow
+    public int zPosition;
+
+    @Shadow
+    public net.minecraft.world.World worldObj;
+
     @Inject(method = "fillChunk", at = @At("HEAD"))
     private void neid$initUltramineTracking(byte[] data, int mask, int additionalMask, boolean skylight,
             CallbackInfo ci) {
@@ -200,16 +209,27 @@ public class MixinChunk {
 
     /**
      * CRITICAL: Call removeInvalidBlocks() for each EBS after fillChunk to recalculate blockRefCount. Vanilla fillChunk
-     * doesn't call it on client, so isEmpty() returns true and chunks don't render!
+     * doesn't call it on client, so isEmpty() returns true and chunks don't render! ALSO: Force render update to ensure
+     * renderer sees the new data (especially for newly generated chunks)!
      */
     @Inject(method = "fillChunk", at = @At("RETURN"))
     private void neid$recalculateBlockCounts(byte[] data, int mask, int additionalMask, boolean skylight,
             CallbackInfo ci) {
+        // Recalculate blockRefCount so isEmpty() returns false
         for (int i = 0; i < storageArrays.length; i++) {
             if (storageArrays[i] != null && (mask & (1 << i)) != 0) {
                 storageArrays[i].removeInvalidBlocks();
             }
         }
         System.out.println("[NEID CLIENT] fillChunk() RETURN: called removeInvalidBlocks() for mask=" + mask);
+
+        // CRITICAL: Force render update! Renderer may have cached "empty chunk" state before fillChunk
+        // This is especially important for newly generated chunks that didn't exist on client before
+        if (worldObj != null && worldObj.isRemote) {
+            int minX = xPosition << 4;
+            int minZ = zPosition << 4;
+            worldObj.markBlockRangeForRenderUpdate(minX, 0, minZ, minX + 15, 256, minZ + 15);
+            System.out.println("[NEID CLIENT] Forced render update for chunk " + xPosition + "," + zPosition);
+        }
     }
 }
