@@ -31,6 +31,12 @@ public class MixinChunk {
     private static final ThreadLocal<Integer> ultramineCurrentMetaIndex = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> ultramineHasSkylight = new ThreadLocal<>();
 
+    // CRITICAL: Temporary storage for chunk data during fillChunk()
+    // EBS objects are SHARED between chunks, so we can't store data in EBS fields directly!
+    // Instead, store data here and copy to EBS only after fillChunk() completes
+    private static final ThreadLocal<short[][]> tempBlockData = ThreadLocal.withInitial(() -> new short[16][]);
+    private static final ThreadLocal<short[][]> tempMetaData = ThreadLocal.withInitial(() -> new short[16][]);
+
     @Shadow
     private ExtendedBlockStorage[] storageArrays;
 
@@ -46,11 +52,22 @@ public class MixinChunk {
     @Inject(method = "fillChunk", at = @At("HEAD"))
     private void neid$initUltramineTracking(byte[] data, int mask, int additionalMask, boolean skylight,
             CallbackInfo ci) {
+        System.err.println("[NEID CLIENT] fillChunk HEAD called! mask=" + mask + ", additionalMask=" + additionalMask);
         int ebsCount = Integer.bitCount(mask);
         ultramineEbsCount.set(ebsCount);
         ultramineCurrentLsbIndex.set(0);
         ultramineCurrentMetaIndex.set(0);
         ultramineHasSkylight.set(skylight);
+
+        // CRITICAL: Clear temp storage for THIS chunk!
+        // Vanilla may process multiple chunks in sequence on same thread,
+        // so we must clear temp data to prevent one chunk from seeing another chunk's data!
+        short[][] tempBlocks = tempBlockData.get();
+        short[][] tempMeta = tempMetaData.get();
+        for (int i = 0; i < 16; i++) {
+            tempBlocks[i] = null;
+            tempMeta[i] = null;
+        }
     }
 
     @Redirect(
@@ -61,25 +78,36 @@ public class MixinChunk {
             require = 1)
     private byte[] neid$injectNewDataCopy(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
-        IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
         int currentIndex = ultramineCurrentLsbIndex.get();
+
+        // CRITICAL: Store data in TEMPORARY ThreadLocal storage, NOT in EBS!
+        // EBS objects are SHARED between chunks during fillChunk(), so storing in EBS
+        // would cause one chunk to overwrite another chunk's data!
+        short[][] blocks = tempBlockData.get();
+        short[][] metadata = tempMetaData.get();
+
+        // Initialize arrays if needed
+        if (blocks[currentIndex] == null) {
+            blocks[currentIndex] = new short[Constants.BLOCKS_PER_EBS];
+            metadata[currentIndex] = new short[Constants.BLOCKS_PER_EBS];
+        }
 
         // Ultramine groups all LSB together at start of packet
         int lsbOffset = currentIndex * 4096;
-        // System.out.println("[NEID CLIENT] LSB for EBS #" + currentIndex + " at offset=" + lsbOffset);
+        System.err.println("[NEID CLIENT] LSB for EBS #" + currentIndex + " at offset=" + lsbOffset);
 
-        // Read LSB (4096 bytes) from Ultramine grouped position
+        // Read LSB (4096 bytes) from Ultramine grouped position into TEMP storage
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
             int lsb = thebytes[lsbOffset + i] & 0xFF;
-            ebsMixin.getBlock16BArray()[i] = (short) lsb;
+            blocks[currentIndex][i] = (short) lsb;
         }
 
         // Count non-air blocks
-        // int nonAir = 0;
-        // for (short s : ebsMixin.getBlock16BArray()) {
-        // if ((s & 0xFFFF) != 0) nonAir++;
-        // }
-        // System.out.println("[NEID CLIENT] LSB read: nonAir=" + nonAir);
+        int nonAir = 0;
+        for (short s : blocks[currentIndex]) {
+            if ((s & 0xFFFF) != 0) nonAir++;
+        }
+        System.err.println("[NEID CLIENT] LSB read: nonAir=" + nonAir);
 
         // Increment index for next EBS
         ultramineCurrentLsbIndex.set(currentIndex + 1);
@@ -97,19 +125,19 @@ public class MixinChunk {
             require = 1)
     private NibbleArray neid$injectNewMetadataCopy(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
-        IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
         int currentIndex = ultramineCurrentMetaIndex.get();
+        short[][] metadata = tempMetaData.get();
         int ebsCount = ultramineEbsCount.get();
 
         // Ultramine groups all Metadata after all LSB
         int metaOffset = (ebsCount * 4096) + (currentIndex * 2048);
 
-        // Read metadata (2048 bytes = 4096 nibbles) from Ultramine grouped position
+        // Read metadata (2048 bytes = 4096 nibbles) from Ultramine grouped position into TEMP storage
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
             int byteIndex = i / 2;
             int nibble = (i & 1) == 0 ? (thebytes[metaOffset + byteIndex] & 0x0F)
                     : ((thebytes[metaOffset + byteIndex] >> 4) & 0x0F);
-            ebsMixin.getBlock16BMetaArray()[i] = (short) nibble;
+            metadata[currentIndex][i] = (short) nibble;
         }
 
         // Increment index for next EBS
@@ -157,8 +185,15 @@ public class MixinChunk {
             require = 0)
     private NibbleArray neid$injectMSBRead(ExtendedBlockStorage ebs, @Local(ordinal = 0) byte[] thebytes,
             @Local(ordinal = 2) LocalIntRef offset) {
-        IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
         int currentIndex = ultramineCurrentLsbIndex.get();
+        short[][] blocks = tempBlockData.get();
+
+        System.err.println(
+                "[NEID CLIENT] MSB redirect for EBS=" + ebs
+                        + " (Y="
+                        + ebs.getYLocation()
+                        + "), currentIndex="
+                        + currentIndex);
         int ebsCount = ultramineEbsCount.get();
         boolean hasSkylight = ultramineHasSkylight.get();
 
@@ -168,36 +203,36 @@ public class MixinChunk {
             msbBaseOffset += (ebsCount * 2048);
         }
         int msbOffset = msbBaseOffset + (currentIndex * 2048);
-        // System.out.println(
-        // "[NEID CLIENT] MSB for EBS #" + currentIndex
-        // + " at offset="
-        // + msbOffset
-        // + " (skylight="
-        // + hasSkylight
-        // + ")");
+        System.err.println(
+                "[NEID CLIENT] MSB for EBS #" + currentIndex
+                        + " at offset="
+                        + msbOffset
+                        + " (skylight="
+                        + hasSkylight
+                        + ")");
 
-        // Read MSB from Ultramine grouped position and combine with LSB
+        // Read MSB from Ultramine grouped position and combine with LSB in TEMP storage
         for (int i = 0; i < Constants.BLOCKS_PER_EBS; i++) {
             int byteIndex = i / 2;
             int nibble = (i & 1) == 0 ? (thebytes[msbOffset + byteIndex] & 0x0F)
                     : ((thebytes[msbOffset + byteIndex] >> 4) & 0x0F);
 
-            int lsb = ebsMixin.getBlock16BArray()[i] & 0xFF;
+            int lsb = blocks[currentIndex][i] & 0xFF;
             int blockId = lsb | (nibble << 8);
-            ebsMixin.getBlock16BArray()[i] = (short) blockId;
+            blocks[currentIndex][i] = (short) blockId;
         }
 
         // Count blocks after combining
-        // int nonAir = 0;
-        // int over255 = 0;
-        // for (short s : ebsMixin.getBlock16BArray()) {
-        // int blockId = s & 0xFFFF;
-        // if (blockId != 0) {
-        // nonAir++;
-        // if (blockId > 255) over255++;
-        // }
-        // }
-        // System.out.println("[NEID CLIENT] After MSB: nonAir=" + nonAir + ", over255=" + over255);
+        int nonAir = 0;
+        int over255 = 0;
+        for (short s : blocks[currentIndex]) {
+            int blockId = s & 0xFFFF;
+            if (blockId != 0) {
+                nonAir++;
+                if (blockId > 255) over255++;
+            }
+        }
+        System.err.println("[NEID CLIENT] After MSB: nonAir=" + nonAir + ", over255=" + over255);
 
         // Increment index for next EBS
         ultramineCurrentLsbIndex.set(currentIndex + 1);
@@ -215,9 +250,42 @@ public class MixinChunk {
     @Inject(method = "fillChunk", at = @At("RETURN"))
     private void neid$recalculateBlockCounts(byte[] data, int mask, int additionalMask, boolean skylight,
             CallbackInfo ci) {
-        // Recalculate blockRefCount so isEmpty() returns false
+        System.err.println("[NEID CLIENT] fillChunk @At(RETURN) inject - copying temp data to EBS for mask=" + mask);
+
+        // CRITICAL: Copy data from TEMP storage to EBS!
+        // At this point, each storageArrays[i] belongs ONLY to THIS chunk, so it's safe to write to them.
+        short[][] tempBlocks = tempBlockData.get();
+        short[][] tempMeta = tempMetaData.get();
+
+        int sectionIndex = 0;
         for (int i = 0; i < storageArrays.length; i++) {
             if (storageArrays[i] != null && (mask & (1 << i)) != 0) {
+                IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) storageArrays[i];
+
+                // Copy from temp storage to EBS
+                if (tempBlocks[sectionIndex] != null) {
+                    System.arraycopy(
+                            tempBlocks[sectionIndex],
+                            0,
+                            ebsMixin.getBlock16BArray(),
+                            0,
+                            Constants.BLOCKS_PER_EBS);
+                    System.arraycopy(
+                            tempMeta[sectionIndex],
+                            0,
+                            ebsMixin.getBlock16BMetaArray(),
+                            0,
+                            Constants.BLOCKS_PER_EBS);
+
+                    // Clear temp storage to free memory
+                    tempBlocks[sectionIndex] = null;
+                    tempMeta[sectionIndex] = null;
+                }
+
+                sectionIndex++;
+
+                System.err
+                        .println("[NEID CLIENT] Calling removeInvalidBlocks on EBS #" + i + " from @At(RETURN) inject");
                 storageArrays[i].removeInvalidBlocks();
             }
         }

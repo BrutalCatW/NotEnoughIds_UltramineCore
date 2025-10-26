@@ -58,6 +58,60 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
         return ret;
     }
 
+    /**
+     * CRITICAL: Get vanilla-compatible 4-bit metadata (2048 bytes) for Ultramine. Ultramine's slot.setData() expects
+     * metadata array to be EXACTLY 2048 bytes (4 bits per block). NEID uses 16-bit metadata internally, so we must
+     * convert to 4-bit for vanilla compatibility.
+     */
+    public byte[] getVanillaMetadata() {
+        final byte[] vanilla = new byte[2048]; // 4096 blocks * 4 bits / 8 = 2048 bytes
+        for (int i = 0; i < this.block16BMetaArray.length; i++) {
+            int meta = this.block16BMetaArray[i] & 0xF; // Take only lower 4 bits
+            if (i % 2 == 0) {
+                vanilla[i / 2] = (byte) (meta & 0xF);
+            } else {
+                vanilla[i / 2] |= (byte) ((meta & 0xF) << 4);
+            }
+        }
+        return vanilla;
+    }
+
+    /**
+     * CRITICAL: Get vanilla-compatible LSB (lower 8 bits) array for Ultramine. Returns 4096 bytes - lower 8 bits of
+     * each block ID.
+     */
+    public byte[] getVanillaBlocks() {
+        final byte[] lsb = new byte[4096];
+        for (int i = 0; i < this.block16BArray.length; i++) {
+            lsb[i] = (byte) (this.block16BArray[i] & 0xFF); // Lower 8 bits
+        }
+        return lsb;
+    }
+
+    /**
+     * CRITICAL: Get vanilla-compatible MSB (bits 8-11) nibble array for Ultramine. Returns 2048 bytes - bits 8-11 of
+     * each block ID (4 bits per block, packed). Returns null if all block IDs are <= 255 (no MSB needed).
+     */
+    public byte[] getVanillaMSB() {
+        byte[] msb = null;
+        for (int i = 0; i < this.block16BArray.length; i++) {
+            int id = this.block16BArray[i] & 0xFFFF;
+            if (id > 255) {
+                // Need MSB array
+                if (msb == null) {
+                    msb = new byte[2048]; // 4096 blocks * 4 bits / 8 = 2048 bytes
+                }
+                int msbValue = (id >> 8) & 0xF; // Bits 8-11
+                if (i % 2 == 0) {
+                    msb[i / 2] = (byte) (msbValue & 0xF);
+                } else {
+                    msb[i / 2] |= (byte) ((msbValue & 0xF) << 4);
+                }
+            }
+        }
+        return msb; // null if not needed
+    }
+
     @Override
     public void setBlockData(byte[] data, int offset) {
         // Use native byte order (little-endian on x86) to match Ultramine server
@@ -211,12 +265,15 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
     @Overwrite
     public void removeInvalidBlocks() {
         // CRITICAL: Reset counters before counting! Otherwise fillChunk() will accumulate counts
+        int oldBlockRefCount = this.blockRefCount;
         this.blockRefCount = 0;
         this.tickRefCount = 0;
 
+        int nonAir = 0;
         for (int off = 0; off < block16BArray.length; ++off) {
             final int id = block16BArray[off] & 0xFFFF;
             if (id > 0) {
+                nonAir++;
                 final Block block = (Block) Block.blockRegistry.getObjectById(id);
                 if (block == null) {
                     if (NEIDConfig.RemoveInvalidBlocks) {
@@ -228,6 +285,22 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
                         ++tickRefCount;
                     }
                 }
+            }
+        }
+
+        // Log on client side to see what's happening
+        if (Thread.currentThread().getName().contains("Client")) {
+            System.err.println(
+                    "[NEID CLIENT] removeInvalidBlocks: nonAir=" + nonAir
+                            + ", blockRefCount changed from "
+                            + oldBlockRefCount
+                            + " to "
+                            + this.blockRefCount);
+
+            // If data disappeared, print stack trace to find who cleared it!
+            if (oldBlockRefCount > 0 && this.blockRefCount == 0) {
+                System.err.println("[NEID CLIENT] WARNING: Data disappeared! Stack trace:");
+                new Exception().printStackTrace();
             }
         }
     }
@@ -253,6 +326,17 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
      */
     @Inject(method = "copy", at = @At("HEAD"), remap = false, require = 0)
     private void neid$syncBeforeCopy(CallbackInfoReturnable<ExtendedBlockStorage> cir) {
+        // Check if MemSlot has data BEFORE syncing
+        try {
+            Object slot = getUltramineSlot();
+            if (slot != null) {
+                java.lang.reflect.Method getBlockId = slot.getClass()
+                        .getMethod("getBlockId", int.class, int.class, int.class);
+                int sampleBlock = (int) getBlockId.invoke(slot, 0, 0, 0);
+                System.err.println("[NEID] copy() HEAD: MemSlot sample block(0,0,0)=" + sampleBlock);
+            }
+        } catch (Exception e) {}
+
         // CRITICAL: Sync FROM MemSlot TO NEID first!
         // This populates NEID arrays with freshly generated chunk data
         syncFromUltramineSlot();
@@ -269,12 +353,14 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
     @Inject(method = "copy", at = @At("RETURN"), remap = false, require = 0)
     private void neid$syncAfterCopy(CallbackInfoReturnable<ExtendedBlockStorage> cir) {
         ExtendedBlockStorage copy = cir.getReturnValue();
+        System.err.println("[NEID] copy() RETURN inject called, copy=" + copy);
         if (copy != null && copy != (Object) this) {
             IExtendedBlockStorageMixin copyMixin = (IExtendedBlockStorageMixin) copy;
 
             // The copy has a new MemSlot with correct data, but empty NEID arrays
             // Sync FROM the copy's MemSlot TO the copy's NEID arrays
             try {
+                System.err.println("[NEID] Starting sync for copy...");
                 Object copySlot = copy.getClass().getMethod("getSlot").invoke(copy);
                 if (copySlot != null) {
                     short[] blocks = copyMixin.getBlock16BArray();
@@ -285,6 +371,7 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
                             .getMethod("getBlockId", int.class, int.class, int.class);
                     java.lang.reflect.Method getMeta = slotClass.getMethod("getMeta", int.class, int.class, int.class);
 
+                    int nonAir = 0;
                     for (int x = 0; x < 16; x++) {
                         for (int y = 0; y < 16; y++) {
                             for (int z = 0; z < 16; z++) {
@@ -293,12 +380,39 @@ public class MixinExtendedBlockStorage implements IExtendedBlockStorageMixin {
                                 int meta = (int) getMeta.invoke(copySlot, x, y, z);
                                 blocks[index] = (short) (blockId & 0xFFFF);
                                 metadata[index] = (short) (meta & 0xFFFF);
+                                if (blockId != 0) nonAir++;
                             }
                         }
                     }
+                    System.err.println("[NEID] Synced copy's NEID arrays from MemSlot! nonAir blocks: " + nonAir);
+
+                    // CRITICAL: Now sync BACK from NEID arrays TO MemSlot!
+                    // Ultramine reads packet data from MemSlot, not from NEID arrays!
+                    // We must update the copy's MemSlot with data from NEID arrays
+                    System.err.println("[NEID] Syncing NEID arrays back to copy's MemSlot...");
+
+                    // Reuse slotClass variable from above
+                    java.lang.reflect.Method setBlockId = slotClass
+                            .getMethod("setBlockId", int.class, int.class, int.class, int.class);
+                    java.lang.reflect.Method setMeta = slotClass
+                            .getMethod("setMeta", int.class, int.class, int.class, int.class);
+
+                    for (int x = 0; x < 16; x++) {
+                        for (int y = 0; y < 16; y++) {
+                            for (int z = 0; z < 16; z++) {
+                                int index = y << 8 | z << 4 | x;
+                                int blockId = blocks[index] & 0xFFFF;
+                                int meta = metadata[index] & 0xFFFF;
+                                setBlockId.invoke(copySlot, x, y, z, blockId);
+                                setMeta.invoke(copySlot, x, y, z, meta);
+                            }
+                        }
+                    }
+                    System.err.println("[NEID] Successfully synced NEID arrays back to copy's MemSlot!");
                 }
             } catch (Exception e) {
-                // Not Ultramine or reflection failed
+                System.err.println("[NEID] CRITICAL: Failed to sync copy's NEID arrays!");
+                e.printStackTrace();
             }
         }
     }

@@ -14,4 +14,11 @@ public interface IExtendedBlockStorageMixin {
 
     void setBlockMeta(byte[] data, int offset);
 
+    // Vanilla-compatible data format for Ultramine (4-bit metadata, 12-bit block IDs)
+    byte[] getVanillaMetadata();
+
+    byte[] getVanillaBlocks();
+
+    byte[] getVanillaMSB();
+
 }

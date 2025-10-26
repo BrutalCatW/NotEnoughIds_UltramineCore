@@ -41,19 +41,36 @@ public class MixinEbsSaveFakeNbt {
 
         try {
             IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
+            net.minecraft.nbt.NBTTagCompound nbt = (net.minecraft.nbt.NBTTagCompound) (Object) this;
 
-            // Add NEID Blocks16 tag
+            // CRITICAL: Add vanilla tags FIRST for Ultramine compatibility!
+            // Ultramine's AnvilChunkLoader expects these tags when loading chunks.
+
+            // Add vanilla "Blocks" (LSB, 4096 bytes)
+            byte[] vanillaBlocks = ebsMixin.getVanillaBlocks();
+            nbt.setByteArray("Blocks", vanillaBlocks);
+
+            // Add vanilla "Add" (MSB, 2048 bytes, optional)
+            byte[] vanillaMSB = ebsMixin.getVanillaMSB();
+            if (vanillaMSB != null) {
+                nbt.setByteArray("Add", vanillaMSB);
+            }
+
+            // Add vanilla "Data" (metadata, 2048 bytes)
+            byte[] vanillaData = ebsMixin.getVanillaMetadata();
+            nbt.setByteArray("Data", vanillaData);
+
+            // Add NEID Blocks16 tag (full 16-bit format)
             byte[] blocks16 = ebsMixin.getBlockData();
             // System.out.println("[NEID] Adding Blocks16 tag: " + blocks16.length + " bytes");
-            // Use reflection to call setByteArray on this NBTTagCompound
-            this.getClass().getMethod("setByteArray", String.class, byte[].class).invoke(this, "Blocks16", blocks16);
+            nbt.setByteArray("Blocks16", blocks16);
 
-            // Add NEID Data16 tag
+            // Add NEID Data16 tag (full 16-bit metadata)
             byte[] data16 = ebsMixin.getBlockMeta();
             // System.out.println("[NEID] Adding Data16 tag: " + data16.length + " bytes");
-            this.getClass().getMethod("setByteArray", String.class, byte[].class).invoke(this, "Data16", data16);
+            nbt.setByteArray("Data16", data16);
 
-            // System.out.println("[NEID] NEID tags added successfully");
+            // System.out.println("[NEID] All NBT tags added successfully");
         } catch (Exception e) {
             System.err.println("[NEID] Failed to add NEID tags: " + e.getMessage());
             e.printStackTrace();
@@ -135,12 +152,33 @@ public class MixinEbsSaveFakeNbt {
         if (!isNbt) {
             IExtendedBlockStorageMixin ebsMixin = (IExtendedBlockStorageMixin) ebs;
 
-            // Write NEID Blocks16
+            // CRITICAL: Write vanilla tags FIRST for Ultramine compatibility!
+            // Ultramine's AnvilChunkLoader expects these tags in specific format.
+            // If missing or wrong size, getByteArray() returns empty array and slot.setData() crashes!
+
+            // Write vanilla "Blocks" (LSB, 4096 bytes)
+            byte[] vanillaBlocks = ebsMixin.getVanillaBlocks();
+            // System.out.println("[NEID] Writing vanilla Blocks: " + vanillaBlocks.length + " bytes");
+            writeByteArray(out, "Blocks", vanillaBlocks, 0, vanillaBlocks.length);
+
+            // Write vanilla "Add" (MSB, 2048 bytes, optional)
+            byte[] vanillaMSB = ebsMixin.getVanillaMSB();
+            if (vanillaMSB != null) {
+                // System.out.println("[NEID] Writing vanilla Add: " + vanillaMSB.length + " bytes");
+                writeByteArray(out, "Add", vanillaMSB, 0, vanillaMSB.length);
+            }
+
+            // Write vanilla "Data" (metadata, 2048 bytes)
+            byte[] vanillaData = ebsMixin.getVanillaMetadata();
+            // System.out.println("[NEID] Writing vanilla Data: " + vanillaData.length + " bytes");
+            writeByteArray(out, "Data", vanillaData, 0, vanillaData.length);
+
+            // Write NEID Blocks16 (full 16-bit block IDs)
             byte[] blocks16 = ebsMixin.getBlockData();
             // System.out.println("[NEID] Writing Blocks16: " + blocks16.length + " bytes");
             writeByteArray(out, "Blocks16", blocks16, 0, blocks16.length);
 
-            // Write NEID Data16
+            // Write NEID Data16 (full 16-bit metadata)
             byte[] data16 = ebsMixin.getBlockMeta();
             writeByteArray(out, "Data16", data16, 0, data16.length);
         }
